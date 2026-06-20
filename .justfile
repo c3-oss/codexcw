@@ -22,7 +22,7 @@ build:
     @mkdir -p {{ BIN }}
     go build -o {{ BIN }}/ ./cmd/...
 
-# alias of `build` (parity with multi-binary projects)
+# alias of `build`
 build-all: build
 
 # build then run bin/<DEFAULT_BINARY> with the given args
@@ -92,14 +92,10 @@ tidy-check:
 ci: tidy-check vet lint lint-sec lint-vuln test-race build
     git diff --exit-code
 
-# goreleaser dry run for local release validation
+# goreleaser dry run for GitHub Release/changelog validation
 snapshot:
     @command -v goreleaser >/dev/null 2>&1 || { echo "goreleaser is required for just snapshot"; exit 127; }
     goreleaser release --snapshot --clean
-
-# build the local Docker image
-docker-build:
-    docker build -t {{ DEFAULT_BINARY }}:local --target {{ DEFAULT_BINARY }} .
 
 # remove build outputs
 clean:

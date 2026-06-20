@@ -32,8 +32,7 @@ Common tasks (run via `just <target>`):
 | `just lint-vuln` | `govulncheck` against `./...` |
 | `just quality` | Markdown lint, link check, secret scan |
 | `just ci` | local mirror of the PR pipeline |
-| `just snapshot` | GoReleaser dry-run with SBOMs |
-| `just docker-build` | local Docker image |
+| `just snapshot` | GoReleaser dry-run for release/changelog validation |
 | `just clean` | drop build outputs |
 
 `just tools` installs Go-based binaries (`govulncheck`, `gosec`) into
@@ -79,11 +78,10 @@ of `devbox shell`).
 ## Releases
 
 Push a tag `v<semver>` to `master` and `.github/workflows/release.yml`
-takes it from there: GoReleaser builds binaries for linux/darwin × amd64/arm64,
-publishes archives + SHA-256 checksums + per-archive SPDX SBOMs (via Syft),
-and Docker pushes a multi-arch image to GHCR.
+takes it from there: GoReleaser creates the GitHub Release and changelog.
+The semver tag is the release artifact consumed by Go module users.
 
-`just snapshot` is the local equivalent and writes everything to `dist/`.
+`just snapshot` validates the release/changelog configuration locally.
 
 ## Repository boundaries
 

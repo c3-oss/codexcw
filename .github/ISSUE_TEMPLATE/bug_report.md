@@ -18,9 +18,9 @@ labels: bug
 
 ## Environment
 
-- Version: <!-- `myapp version` -->
+- Version: <!-- module version, e.g. v0.1.0 -->
 - OS / Arch:
-- Install method: <!-- binary, brew, docker, source -->
+- Install method: <!-- Go module or source checkout -->
 
 ## Logs / output
 

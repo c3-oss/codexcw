@@ -46,5 +46,6 @@ range on each PR.
 
 ## Releasing
 
-Tag a `v<semver>` on `master`. CI publishes binaries, Docker images, and
-SBOMs automatically. See [`AGENTS.md`](AGENTS.md#releases) for details.
+Tag a `v<semver>` on `master`. The tag is the Go module release, and CI creates
+the GitHub Release with a changelog. See [`AGENTS.md`](AGENTS.md#releases) for
+details.

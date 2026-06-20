@@ -26,5 +26,4 @@ This repository uses:
 - `gitleaks` secret scanning
 - `gosec` static security analysis
 - `govulncheck` dependency and call-path scanning
-- GoReleaser SBOM generation via Syft
-- Distroless Docker runtime images
+- GoReleaser changelog generation for tagged releases

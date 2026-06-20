@@ -87,7 +87,7 @@ results, err := group.Wait()
 
 ## CLI example
 
-The repository also builds a small example binary:
+The repository also includes a small example CLI for local smoke tests:
 
 ```bash
 codexcw run "diga oi"
@@ -100,15 +100,14 @@ printf 'diga oi' | codexcw run
 
 ```bash
 just build         # compile all cmd/* into bin/
-just run           # build then run the default binary
+just run           # build then run the example CLI
 just test-race     # full race detector
 just lint          # golangci-lint v2
 just lint-sec      # gosec
 just lint-vuln     # govulncheck
 just quality       # markdown + link check + secret scan
 just ci            # local mirror of the PR pipeline
-just snapshot      # goreleaser --snapshot (writes dist/ with SBOMs)
-just docker-build  # build the local Docker image
+just snapshot      # goreleaser --snapshot for release/changelog validation
 ```
 
 See [`AGENTS.md`](AGENTS.md) for the canonical project guide.
