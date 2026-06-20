@@ -237,6 +237,7 @@ func (r *Runner) Start(ctx context.Context, req Request, opts ...RunOption) (*Se
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
+	// #nosec G204 -- launching the configured Codex executable is the wrapper boundary.
 	cmd := exec.CommandContext(runCtx, r.executable, args...)
 	cmd.Stdin = stdin
 	cmd.Env = append(os.Environ(), append(r.env, req.Env...)...)
