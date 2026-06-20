@@ -1,4 +1,4 @@
-// Package cli wires the Cobra command tree for myapp.
+// Package cli wires the Cobra command tree for codexcw.
 package cli
 
 import (
@@ -11,8 +11,8 @@ func newRootCmd() *cobra.Command {
 	var logLevel string
 
 	cmd := &cobra.Command{
-		Use:           "myapp",
-		Short:         "myapp — replace with a one-line summary of your application",
+		Use:           "codexcw",
+		Short:         "codexcw runs Codex CLI non-interactively from Go",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
@@ -23,6 +23,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 
 	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newRunCmd())
 
 	return cmd
 }
