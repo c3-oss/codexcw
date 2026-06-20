@@ -1,12 +1,11 @@
-# Stub Compose file — uncomment services as you add dependencies (Postgres,
-# Redis, MinIO, etc). The myapp service builds the local image from this
-# repo's Dockerfile.
+# Stub Compose file for local service dependencies. The codexcw service builds
+# the local image from this repo's Dockerfile.
 services:
-  myapp:
+  codexcw:
     build:
       context: .
-      target: myapp
-    image: myapp:local
+      target: codexcw
+    image: codexcw:local
     # ports:
     #   - "8080:8080"
     # env_file:
@@ -17,9 +16,9 @@ services:
   # postgres:
   #   image: postgres:16-alpine
   #   environment:
-  #     POSTGRES_USER: myapp
-  #     POSTGRES_PASSWORD: myapp
-  #     POSTGRES_DB: myapp
+  #     POSTGRES_USER: codexcw
+  #     POSTGRES_PASSWORD: codexcw
+  #     POSTGRES_DB: codexcw
   #   ports:
   #     - "5432:5432"
   #   volumes:

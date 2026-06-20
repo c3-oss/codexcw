@@ -1,7 +1,4 @@
-// Command myapp is the placeholder entrypoint of this template.
-//
-// Replace this package with your own binary's name via scripts/setup.sh
-// after creating a new repo from the template.
+// Command codexcw is the example CLI for the codexcw library.
 package main
 
 import (

@@ -1,8 +1,8 @@
 {
-  "name": "@c3-oss/go-template-tooling",
+  "name": "@c3-oss/codexcw-tooling",
   "version": "0.0.0",
   "private": true,
-  "description": "Developer tooling for the c3-oss Go project template.",
+  "description": "Developer tooling for codexcw.",
   "packageManager": "pnpm@10.20.0",
   "scripts": {
     "commitlint": "commitlint --config commitlint.config.cjs",

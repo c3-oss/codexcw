@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "_notes": {
-    "purpose": "Claude Code project settings for this template. Read AGENTS.md first; specialist subagents live in .claude/agents, and domain skills live in .codex/skills.",
+    "purpose": "Claude Code project settings for codexcw. Read AGENTS.md first; specialist subagents live in .claude/agents, and domain skills live in .codex/skills.",
     "hooks": [
       "SessionStart prints a one-screen orientation so every session begins aware of the canonical guide.",
       "PreToolUse blocks edits to dist/ and vendored content."
@@ -14,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '\\n=== c3-oss/go-template ===\\n- Canonical guide: AGENTS.md (read it before substantial changes).\\n- Toolchain: devbox + just. No Makefile.\\n- Conventional Commits with required scope are enforced by commitlint.\\n- Local CI lane: `just ci`.\\n===\\n\\n'",
+            "command": "printf '\\n=== c3-oss/codexcw ===\\n- Canonical guide: AGENTS.md (read it before substantial changes).\\n- Toolchain: devbox + just.\\n- Conventional Commits with required scope are enforced by commitlint.\\n- Local CI lane: `just ci`.\\n===\\n\\n'",
             "timeout": 5
           }
         ]
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '\\n=== c3-oss/go-template ===\\n- Canonical guide: AGENTS.md (read it before substantial changes).\\n- Toolchain: devbox + just. No Makefile.\\n- Conventional Commits with required scope are enforced by commitlint.\\n- Local CI lane: `just ci`.\\n===\\n\\n'",
+            "command": "printf '\\n=== c3-oss/codexcw ===\\n- Canonical guide: AGENTS.md (read it before substantial changes).\\n- Toolchain: devbox + just.\\n- Conventional Commits with required scope are enforced by commitlint.\\n- Local CI lane: `just ci`.\\n===\\n\\n'",
             "timeout": 5
           }
         ]

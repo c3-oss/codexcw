@@ -1,7 +1,7 @@
 set shell := ["/bin/bash", "-c"]
 
 BIN := "bin"
-DEFAULT_BINARY := "myapp"
+DEFAULT_BINARY := "codexcw"
 CLI := "bin/" + DEFAULT_BINARY
 
 # --------------------------------------------------------------------------------------------------
@@ -100,10 +100,6 @@ snapshot:
 # build the local Docker image
 docker-build:
     docker build -t {{ DEFAULT_BINARY }}:local --target {{ DEFAULT_BINARY }} .
-
-# rename the placeholder app — usage: just setup github.com/c3-oss/foo foo
-setup MODULE BINARY:
-    bash scripts/setup.sh {{ MODULE }} {{ BINARY }}
 
 # remove build outputs
 clean:

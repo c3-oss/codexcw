@@ -12,7 +12,7 @@ exclude = [
   "^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:\\d+)?(/.*)?$",
   "^https?://.*\\.example\\.(com|org|net)(/.*)?$",
   "^https?://example\\.(com|org|net)(/.*)?$",
-  "^https://github\\.com/c3-oss/go-template/actions/workflows/.*$",
+  "^https://github\\.com/c3-oss/codexcw/actions/workflows/.*$",
 ]
 
 # These hosts respond unreliably to HEAD probes from CI runners.

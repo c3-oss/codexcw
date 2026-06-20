@@ -19,6 +19,6 @@ RUN mkdir -p /out && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
         -X github.com/c3-oss/codexcw/internal/buildinfo.BuildDate=${BUILD_DATE}" \
       -o /out/ ./cmd/...
 
-FROM gcr.io/distroless/static-debian12 AS myapp
-COPY --from=build /out/myapp /usr/local/bin/myapp
-ENTRYPOINT ["/usr/local/bin/myapp"]
+FROM gcr.io/distroless/static-debian12 AS codexcw
+COPY --from=build /out/codexcw /usr/local/bin/codexcw
+ENTRYPOINT ["/usr/local/bin/codexcw"]
