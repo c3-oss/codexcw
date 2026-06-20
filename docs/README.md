@@ -1,6 +1,6 @@
 # Documentation
 
-Use this directory for project-specific deep dives, architecture notes, runbooks,
-and operational references after creating a repository from the template.
+This directory holds codexcw deep dives, architecture notes, runbooks, and
+operational references.
 
 Keep the root `README.md` focused on quick start and everyday commands.

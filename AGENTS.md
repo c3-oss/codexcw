@@ -5,12 +5,12 @@ Read this end-to-end before proposing substantial changes.
 
 ## Project shape
 
-- **Module**: declared in `go.mod`. The template ships as `github.com/c3-oss/codexcw`; after `./scripts/setup.sh` it will reflect your repo path.
+- **Module**: `github.com/c3-oss/codexcw`.
 - **Layout**:
-  - `cmd/<binary>/` — entrypoints (`main` packages). The template ships with one (`cmd/myapp/`); add more by mirroring the pattern.
+  - Root package — public Go library imported as `github.com/c3-oss/codexcw`.
+  - `cmd/codexcw/` — example CLI entrypoint.
   - `internal/` — non-exportable application code (`buildinfo`, `cli`, `logging`).
-  - `pkg/` — exportable packages. Empty by default; add carefully — API stability matters here.
-  - `scripts/` — small bash utilities (rename, coverage report).
+  - `scripts/` — small bash utilities.
   - `docs/` — long-form documentation. Architecture, design notes, runbooks.
 - **Generated outputs** (gitignored): `bin/`, `dist/`, `coverage.*`.
 
@@ -49,6 +49,8 @@ Common tasks (run via `just <target>`):
   that should abort the test and `assert` for soft checks.
 - Logging goes to stderr (via `internal/logging`); stdout is reserved for
   command output that callers may pipe.
+- Library code preserves raw Codex JSON payloads when adding typed helpers.
+- Tests for Codex process behavior use fake executables via `WithExecutable`.
 - Comments explain *why*, not *what*. Identifiers carry the *what*.
 
 ## Commits and PRs
@@ -83,10 +85,10 @@ and Docker pushes a multi-arch image to GHCR.
 
 `just snapshot` is the local equivalent and writes everything to `dist/`.
 
-## What is intentionally *not* here
+## Repository boundaries
 
-- No `Makefile` — `just` only.
-- No `pkg/` content out of the box — add carefully, exports become contracts.
-- No CGO. Switch `CGO_ENABLED=1` in `Dockerfile` and `.goreleaser.yaml` if you need it.
-- No web framework / DB driver / message broker — add what the project needs.
-- No `.claude/agents` or `.codex/skills` content — the structure is ready; populate per project.
+- Task automation uses `just`.
+- Builds use `CGO_ENABLED=0`.
+- The public API lives at the module root; exported identifiers are API
+  contracts.
+- Agent integrations live in `.claude/` and `.codex/`.
