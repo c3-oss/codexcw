@@ -9,17 +9,29 @@ const defaultMaxConcurrent = 4
 
 // RunEvent is one event multiplexed from RunMany.
 type RunEvent struct {
+	// RunID is the wrapper-assigned run id.
 	RunID string
+
+	// Index is the request index in the RunMany input slice.
 	Index int
+
+	// Event is the decoded Codex event.
 	Event Event
 }
 
 // GroupResult is the result for one request passed to RunMany.
 type GroupResult struct {
-	Index  int
-	RunID  string
+	// Index is the request index in the RunMany input slice.
+	Index int
+
+	// RunID is the wrapper-assigned run id.
+	RunID string
+
+	// Result is set when the run started.
 	Result *Result
-	Err    error
+
+	// Err is set when the run failed.
+	Err error
 }
 
 // Group represents a batch of running Codex processes.

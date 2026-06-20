@@ -119,6 +119,7 @@ func New(opts ...Option) *Runner {
 
 // Handler receives decoded events as they stream from Codex.
 type Handler interface {
+	// HandleCodexEvent processes one decoded event.
 	HandleCodexEvent(context.Context, Event) error
 }
 
@@ -146,14 +147,29 @@ func WithHandler(handler Handler) RunOption {
 
 // Result summarizes a completed codex exec invocation.
 type Result struct {
-	RunID        string
-	ThreadID     string
+	// RunID is the wrapper-assigned run id.
+	RunID string
+
+	// ThreadID is the Codex thread id once known.
+	ThreadID string
+
+	// FinalMessage is the last completed agent_message text.
 	FinalMessage string
-	Usage        Usage
-	Events       []Event
-	Stderr       string
-	StartedAt    time.Time
-	FinishedAt   time.Time
+
+	// Usage is the last turn.completed usage payload.
+	Usage Usage
+
+	// Events contains every decoded event retained by Wait.
+	Events []Event
+
+	// Stderr is the captured stderr tail.
+	Stderr string
+
+	// StartedAt is the local time when collection started.
+	StartedAt time.Time
+
+	// FinishedAt is the local time when the process finished.
+	FinishedAt time.Time
 }
 
 type sessionOutcome struct {
@@ -163,6 +179,7 @@ type sessionOutcome struct {
 
 // Session represents one running codex exec process.
 type Session struct {
+	// ID is the wrapper-assigned run id.
 	ID string
 
 	events chan Event
