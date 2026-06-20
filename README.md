@@ -1,7 +1,7 @@
 # go-template
 
-[![CI](https://github.com/c3-oss/go-template/actions/workflows/ci.yml/badge.svg)](https://github.com/c3-oss/go-template/actions/workflows/ci.yml)
-[![Release](https://github.com/c3-oss/go-template/actions/workflows/release.yml/badge.svg)](https://github.com/c3-oss/go-template/actions/workflows/release.yml)
+[![CI](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml/badge.svg)](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml)
+[![Release](https://github.com/c3-oss/codexcw/actions/workflows/release.yml/badge.svg)](https://github.com/c3-oss/codexcw/actions/workflows/release.yml)
 [![License: CC0 1.0](https://img.shields.io/badge/license-CC0%201.0-lightgrey.svg)](LICENSE)
 
 A starting point for Go projects in the `c3-oss` org. Captures the

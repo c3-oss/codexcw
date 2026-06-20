@@ -1,4 +1,4 @@
-module github.com/c3-oss/go-template
+module github.com/c3-oss/codexcw
 
 go 1.26.2
 

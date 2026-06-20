@@ -4,7 +4,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/c3-oss/go-template/internal/logging"
+	"github.com/c3-oss/codexcw/internal/logging"
 )
 
 func newRootCmd() *cobra.Command {

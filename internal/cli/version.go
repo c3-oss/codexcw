@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/c3-oss/go-template/internal/buildinfo"
+	"github.com/c3-oss/codexcw/internal/buildinfo"
 )
 
 func newVersionCmd() *cobra.Command {
