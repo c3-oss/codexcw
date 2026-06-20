@@ -1,0 +1,15 @@
+/.devbox/
+/.idea/
+/.vscode/
+/bin/
+/dist/
+/node_modules/
+/tmp/
+/vendor/
+*.test
+*.out
+.DS_Store
+.env
+coverage.txt
+coverage.html
+*.db

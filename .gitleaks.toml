@@ -1,0 +1,19 @@
+# gitleaks — secret scanner config.
+#
+# Docs: https://github.com/gitleaks/gitleaks#configuration
+# This config extends the bundled default rules and adds path-based
+# allowlists for fixtures and vendored content.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore fixture data, vendored sources, and lockfiles"
+paths = [
+  '''testdata/''',
+  '''pkg/vendor.*''',
+  '''vendor/''',
+  '''node_modules/''',
+  '''pnpm-lock\.yaml$''',
+  '''go\.sum$''',
+]

@@ -1,0 +1,29 @@
+# Stub Compose file — uncomment services as you add dependencies (Postgres,
+# Redis, MinIO, etc). The myapp service builds the local image from this
+# repo's Dockerfile.
+services:
+  myapp:
+    build:
+      context: .
+      target: myapp
+    image: myapp:local
+    # ports:
+    #   - "8080:8080"
+    # env_file:
+    #   - .env
+    # depends_on:
+    #   - postgres
+
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: myapp
+  #     POSTGRES_PASSWORD: myapp
+  #     POSTGRES_DB: myapp
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+
+# volumes:
+#   postgres-data:

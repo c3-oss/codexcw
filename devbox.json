@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
+  "packages": [
+    "go@1.26",
+    "golangci-lint@2.12",
+    "gofumpt@0.10",
+    "gitleaks@8.28",
+    "lychee@0.23",
+    "markdownlint-cli2@0.21",
+    "syft@1.18",
+    "ripgrep@15.1",
+    "just@1.51",
+    "nodejs@24",
+    "pnpm@10.20",
+    "goreleaser@2.15"
+  ],
+  "env": {
+    "DEVBOX_COREPACK_ENABLED": "true"
+  },
+  "shell": {
+    "init_hook": [
+      "export GOBIN=$PWD/bin",
+      "export PATH=$GOBIN:$PATH",
+      "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi",
+      "if [ ! -x \"$GOBIN/govulncheck\" ]; then go install golang.org/x/vuln/cmd/govulncheck@latest; fi",
+      "if [ ! -x \"$GOBIN/gosec\" ]; then go install github.com/securego/gosec/v2/cmd/gosec@latest; fi"
+    ]
+  }
+}

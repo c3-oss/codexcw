@@ -1,0 +1,5 @@
+# See https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Default owners — review every PR. Replace with project-specific owners
+# after creating a repo from this template.
+* @c3-oss/maintainers
