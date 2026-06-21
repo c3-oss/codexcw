@@ -1,0 +1,34 @@
+{
+  "name": "@c3-oss/codexcw-linux-arm64-musl",
+  "version": "0.1.0",
+  "cpu": [
+    "arm64"
+  ],
+  "main": "codexcw.linux-arm64-musl.node",
+  "files": [
+    "codexcw.linux-arm64-musl.node"
+  ],
+  "description": "Run the Codex CLI non-interactively from Node.js, backed by a Rust core.",
+  "keywords": [
+    "codex",
+    "automation",
+    "agent",
+    "cli",
+    "napi-rs"
+  ],
+  "homepage": "https://github.com/c3-oss/codexcw2",
+  "license": "CC0-1.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/codexcw2.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "musl"
+  ]
+}
