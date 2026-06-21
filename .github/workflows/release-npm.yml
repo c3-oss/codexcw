@@ -1,0 +1,99 @@
+# Builds per-platform native addons and publishes @c3-oss/codexcw to npm.
+#
+# Triggered by tags of the form `node-v*`. The publish step is commented out
+# until the first release; the build matrix runs and uploads artifacts so the
+# pipeline is exercised.
+name: Release (npm)
+
+on:
+  push:
+    tags: ["node-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    working-directory: bindings/node
+
+jobs:
+  build:
+    name: build / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, cross: true }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build addon
+        run: >-
+          npx napi build --platform --release
+          --target ${{ matrix.target }}
+          ${{ matrix.cross && '--use-napi-cross' || '' }}
+          --js binding.js --dts binding.d.ts
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: bindings-${{ matrix.target }}
+          path: bindings/node/*.node
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/node-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: bindings/node/artifacts
+
+      - name: Distribute artifacts into npm dirs
+        run: npx napi artifacts --npm-dir npm --build-output-dir artifacts
+
+      # PLACEHOLDER — enable on the first release. Uses npm OIDC provenance;
+      # NPM_TOKEN is the fallback.
+      #
+      # - name: Publish
+      #   run: |
+      #     npx napi pre-publish -t npm --skip-gh-release
+      #     npm publish --access public --provenance
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
