@@ -1,8 +1,10 @@
 {
-  "name": "codexcw (Go + Node)",
+  "name": "codexcw (polyglot)",
   "image": "mcr.microsoft.com/devcontainers/go:1-bookworm",
   "features": {
+    "ghcr.io/devcontainers/features/rust:1": {},
     "ghcr.io/devcontainers/features/node:1": { "version": "24" },
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
     "ghcr.io/devcontainers-extra/features/just:1": {}
   },
   "customizations": {
@@ -10,6 +12,8 @@
       "extensions": [
         "golang.go",
         "golangci-lint.golangci-lint",
+        "rust-lang.rust-analyzer",
+        "ms-python.python",
         "redhat.vscode-yaml",
         "tamasfe.even-better-toml",
         "editorconfig.editorconfig"
