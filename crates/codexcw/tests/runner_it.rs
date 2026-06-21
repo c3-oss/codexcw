@@ -91,7 +91,6 @@ async fn process_exit_error_carries_stderr_and_last_event() {
 cat >/dev/null
 printf '%s\n' '{"type":"thread.started","thread_id":"thread-3"}'
 printf '%s\n' '{"type":"turn.started"}'
-printf '%s\n' '{"type":"error","message":"bad model"}'
 printf '%s\n' 'stderr detail' >&2
 exit 1
 "#,
@@ -111,9 +110,36 @@ exit 1
             assert_eq!(code, 1);
             assert!(stderr.contains("stderr detail"));
             let last = last_event.expect("last event present");
-            assert_eq!(last.kind, EventKind::Error);
+            assert_eq!(last.kind, EventKind::TurnStarted);
         }
         other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn codex_event_error_precedes_exit_error() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-3"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"error","message":"invalid_json_schema: bad model"}'
+printf '%s\n' 'stderr detail' >&2
+exit 1
+"#,
+    );
+
+    let error = runner_for(&fake)
+        .run(Request::new("fail"))
+        .await
+        .expect_err("run fails");
+
+    match error {
+        Error::Codex { message, event } => {
+            assert!(message.contains("invalid_json_schema: bad model"));
+            assert!(matches!(event.payload, EventPayload::Error(_)));
+        }
+        other => panic!("codex error event must take precedence over exit error, got: {other:?}"),
     }
 }
 

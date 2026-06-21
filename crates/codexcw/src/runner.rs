@@ -449,10 +449,10 @@ async fn collect(ctx: CollectCtx) {
     };
 
     if run_err.is_none() {
-        run_err = classify_process_error(&wait_result, &report.stderr, last_event.as_ref());
+        run_err = classify_codex_event(last_event.as_ref());
     }
     if run_err.is_none() {
-        run_err = classify_codex_event(last_event.as_ref());
+        run_err = classify_process_error(&wait_result, &report.stderr, last_event.as_ref());
     }
 
     completion.set(RunOutcome {

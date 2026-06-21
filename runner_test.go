@@ -85,7 +85,6 @@ record_args "$@"
 cat >/dev/null
 printf '%s\n' '{"type":"thread.started","thread_id":"thread-3"}'
 printf '%s\n' '{"type":"turn.started"}'
-printf '%s\n' '{"type":"error","message":"bad model"}'
 printf '%s\n' 'stderr detail' >&2
 exit 1
 `)
@@ -99,7 +98,31 @@ exit 1
 	assert.Equal(t, 1, exitErr.Code)
 	assert.Contains(t, exitErr.Stderr, "stderr detail")
 	require.NotNil(t, exitErr.LastEvent)
-	assert.Equal(t, EventError, exitErr.LastEvent.Type)
+	assert.Equal(t, EventTurnStarted, exitErr.LastEvent.Type)
+}
+
+func TestCodexEventErrorPrecedesExitError(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-3"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"error","message":"invalid_json_schema: bad model"}'
+printf '%s\n' 'stderr detail' >&2
+exit 1
+`)
+
+	result, err := New(WithExecutable(fake)).Run(context.Background(), Request{Prompt: "fail"})
+	require.Error(t, err)
+	require.NotNil(t, result)
+
+	var exitErr *ExitError
+	assert.False(t, errors.As(err, &exitErr), "codex error event must take precedence over generic exit error")
+
+	var codexErr *CodexError
+	require.True(t, errors.As(err, &codexErr))
+	assert.Equal(t, EventError, codexErr.Event.Type)
+	assert.Contains(t, codexErr.Error(), "invalid_json_schema: bad model")
 }
 
 func TestDecodeError(t *testing.T) {

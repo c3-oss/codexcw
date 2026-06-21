@@ -407,10 +407,10 @@ func (r *Runner) collect(
 	}
 
 	if runErr == nil {
-		runErr = classifyProcessError(ctx, waitErr, result.Stderr, lastEvent)
+		runErr = classifyCodexEvent(lastEvent)
 	}
 	if runErr == nil {
-		runErr = classifyCodexEvent(lastEvent)
+		runErr = classifyProcessError(ctx, waitErr, result.Stderr, lastEvent)
 	}
 
 	close(session.events)
