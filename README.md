@@ -48,6 +48,8 @@ func main() {
 }
 ```
 
+More examples (resume, sandbox/approval, bypass, batches, …): [`docs/examples/go.md`](docs/examples/go.md).
+
 ## Rust
 
 ```rust
@@ -61,6 +63,8 @@ async fn main() -> Result<(), codexcw::Error> {
     Ok(())
 }
 ```
+
+More examples (async + blocking): [`docs/examples/rust.md`](docs/examples/rust.md).
 
 ## TypeScript / Node.js
 
@@ -81,6 +85,8 @@ for await (const event of session.events()) {
 await session.wait()
 ```
 
+More examples: [`docs/examples/typescript.md`](docs/examples/typescript.md).
+
 ## Python
 
 ```python
@@ -91,7 +97,8 @@ result = runner.run(Request(prompt="diga oi"))
 print(result.final_message)
 ```
 
-An async API mirrors the sync one under `codexcw.aio`.
+An async API mirrors the sync one under `codexcw.aio`. More examples (sync +
+async): [`docs/examples/python.md`](docs/examples/python.md).
 
 ## Development
 
@@ -111,7 +118,9 @@ Recipes are language-namespaced:
 | `just quality` | markdown lint, link check, secret scan |
 | `just ci` | the full local lane |
 
-See [`AGENTS.md`](AGENTS.md) for the canonical project guide.
+Complete per-language usage recipes (sync **and** async) live in
+[`docs/examples/`](docs/examples/). See [`AGENTS.md`](AGENTS.md) for the canonical
+project guide.
 
 ## License
 

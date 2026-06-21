@@ -22,6 +22,11 @@ test fixtures stay a single source of truth.
 - **Generated outputs** (gitignored): `bin/`, `target/`, `dist/`, `node_modules/`,
   `*.node`, `*.so`, `.venv/`.
 
+Complete usage recipes per language (quickstart, streaming, resume, sandbox /
+approval, bypass, batches, structured output, errors — in both sync and async
+forms) live in `docs/examples/{go,rust,typescript,python}.md`. The Codex skill
+(`.codex/skills/codexcw/`) and the `codexcw-expert` Claude subagent point there.
+
 ## Build, test, develop
 
 Toolchain is pinned in `devbox.json` (Go + golangci-lint + goreleaser; Rust via
