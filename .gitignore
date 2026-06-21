@@ -1,0 +1,33 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node
+node_modules/
+bindings/node/*.node
+bindings/node/npm/**/*.node
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+.venv/
+dist/
+wheelhouse/
+*.egg-info/
+.pytest_cache/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Devbox / direnv
+.devbox/
+.env
+
+# Coverage
+coverage/
+*.profraw
+lcov.info

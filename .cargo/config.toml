@@ -1,0 +1,7 @@
+# Allow Python extension-module cdylibs (codexcw-py) to link with unresolved
+# CPython symbols on macOS, resolved at import time. Harmless for other crates.
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

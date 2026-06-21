@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.node binary
+
+docs/** linguist-documentation
+bindings/node/binding.js linguist-generated
+bindings/node/binding.d.ts linguist-generated
+Cargo.lock linguist-generated
+pnpm-lock.yaml linguist-generated
+package-lock.json linguist-generated
