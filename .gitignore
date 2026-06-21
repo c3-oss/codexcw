@@ -6,6 +6,12 @@
 node_modules/
 bindings/node/*.node
 bindings/node/npm/**/*.node
+# npm's lockfile is non-deterministic here (unpublished platform optionals);
+# @napi-rs/cli is pinned exactly in package.json instead.
+package-lock.json
+
+# Debug symbols
+*.dSYM/
 
 # Python
 __pycache__/

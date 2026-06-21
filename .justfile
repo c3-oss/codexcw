@@ -53,13 +53,13 @@ test-node:
 # --------------------------------------------------------------------------------------------------
 # Python binding (codexcw)
 
-# build the extension into a local venv
+# build the extension into a local venv with dev dependencies
 build-py:
-    cd bindings/python && uv venv && uv pip install -q maturin pytest pytest-asyncio && uv run maturin develop
+    cd bindings/python && uv venv && uv pip install -e ".[dev]"
 
 # run the Python smoke tests
 test-py:
-    cd bindings/python && uv run pytest -q
+    cd bindings/python && .venv/bin/python -m pytest -q
 
 # --------------------------------------------------------------------------------------------------
 # Cross-cutting quality gates
