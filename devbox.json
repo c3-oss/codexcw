@@ -1,20 +1,23 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
-  "packages": [
-    "rustup@1.28.2",
-    "gitleaks@8.28",
-    "lychee@0.23",
-    "markdownlint-cli2@0.21",
-    "just@1.51",
-    "nodejs@24",
-    "pnpm@10.20",
-    "ripgrep@15.1",
-    "python@3.12",
-    "uv@0.9",
-    "maturin@1",
-    "cargo-deny@latest",
-    "cargo-audit@latest"
-  ],
+  "packages": {
+    "rustup": "1.28.2",
+    "gitleaks": "8.28",
+    "lychee": "0.23",
+    "markdownlint-cli2": "0.21",
+    "just": "1.51",
+    "nodejs": "24",
+    "pnpm": "10.20",
+    "ripgrep": "15.1",
+    "python": {
+      "version": "3.12",
+      "disable_plugin": true
+    },
+    "uv": "0.9",
+    "maturin": "1",
+    "cargo-deny": "latest",
+    "cargo-audit": "latest"
+  },
   "env": {
     "DEVBOX_COREPACK_ENABLED": "true"
   },
