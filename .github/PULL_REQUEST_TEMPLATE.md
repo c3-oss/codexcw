@@ -1,10 +1,10 @@
 ## Summary
 
-<!-- Briefly describe the why behind this change. The what is visible in the diff. -->
+<!-- Why behind this change. The what is visible in the diff. -->
 
 ## Changes
 
-<!-- Bullet list of notable changes. Group by area when helpful. -->
+<!-- Bullet list of notable changes. Group by area (core, node, py, ci) when helpful. -->
 
 ## Test plan
 

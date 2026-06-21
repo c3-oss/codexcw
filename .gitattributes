@@ -1,15 +1,18 @@
-# Auto-detect text files and normalize line endings to LF in the repo.
 * text=auto eol=lf
 
-# Explicitly mark generated assets as binary so diffs stay readable.
-*.png  binary
-*.jpg  binary
+*.png binary
+*.jpg binary
 *.jpeg binary
-*.gif  binary
+*.gif binary
 *.webp binary
-*.ico  binary
-*.pdf  binary
+*.ico binary
+*.pdf binary
+*.node binary
 
-# Exclude from language stats / archives.
-docs/**    linguist-documentation
+docs/** linguist-documentation
 testdata/** linguist-vendored
+bindings/node/binding.js linguist-generated
+bindings/node/binding.d.ts linguist-generated
+Cargo.lock linguist-generated
+pnpm-lock.yaml linguist-generated
+package-lock.json linguist-generated

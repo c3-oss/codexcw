@@ -1,0 +1,25 @@
+[package]
+name = "codexcw"
+description = "Run the Codex CLI non-interactively: spawn `codex exec --json`, decode its JSONL event stream, and expose runs as async streams, callbacks, results, and typed errors."
+keywords = ["codex", "automation", "agent", "cli", "wrapper"]
+categories = ["api-bindings", "asynchronous", "command-line-utilities"]
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "fs"] }

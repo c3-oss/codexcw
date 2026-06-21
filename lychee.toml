@@ -1,27 +1,24 @@
-# lychee — link checker config
-#
-# Docs: https://lychee.cli.rs/usage/config/
-
-# Treat 429 (rate-limited) as success — lychee retries and we don't want
-# transient throttling to block CI.
 accept = [200, 204, 429]
-
-# Skip well-known placeholders, localhost-only endpoints, and examples
-# embedded in documentation.
-exclude = [
-  "^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:\\d+)?(/.*)?$",
-  "^https?://.*\\.example\\.(com|org|net)(/.*)?$",
-  "^https?://example\\.(com|org|net)(/.*)?$",
-  "^https://github\\.com/c3-oss/codexcw/actions/workflows/.*$",
-]
-
-# These hosts respond unreliably to HEAD probes from CI runners.
-exclude_path = [
-  "node_modules",
-  "vendor",
-  "dist",
-]
-
 max_redirects = 5
 timeout = 20
 no_progress = true
+
+exclude = [
+  "^https?://localhost",
+  "^https?://127\\.0\\.0\\.1",
+  "^https?://0\\.0\\.0\\.0",
+  "example\\.com",
+  "github\\.com/.*/actions/workflows",
+  # Not yet live until the first release / while the repo is private.
+  "github\\.com/c3-oss/codexcw",
+  "npmjs\\.com/package/@c3-oss/codexcw",
+  "pypi\\.org/project/codexcw",
+  "crates\\.io/crates/codexcw",
+]
+
+exclude_path = [
+  "node_modules",
+  "target",
+  "dist",
+  ".venv",
+]

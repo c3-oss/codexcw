@@ -8,13 +8,13 @@ updates:
     commit-message:
       prefix: "build(deps)"
 
-  - package-ecosystem: github-actions
+  - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "ci(deps)"
+      prefix: "build(deps)"
 
   - package-ecosystem: npm
     directory: /
@@ -23,3 +23,27 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "build(deps)"
+
+  - package-ecosystem: npm
+    directory: /bindings/node
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(deps)"
+
+  - package-ecosystem: pip
+    directory: /bindings/python
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"

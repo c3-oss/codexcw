@@ -24,6 +24,6 @@ fix before public disclosure when appropriate.
 This repository uses:
 
 - `gitleaks` secret scanning
-- `gosec` static security analysis
-- `govulncheck` dependency and call-path scanning
-- GoReleaser changelog generation for tagged releases
+- Go: `gosec` static analysis and `govulncheck` dependency/call-path scanning
+- Rust: `cargo deny` license/advisory checks and `cargo audit` vulnerability scanning
+- Per-ecosystem Dependabot updates (gomod, cargo, npm, pip, github-actions)

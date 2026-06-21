@@ -1,17 +1,16 @@
 ---
 name: Feature request
-about: Propose a new capability or improvement
+about: Suggest an improvement to codexcw
+title: ""
 labels: enhancement
 ---
 
 ## Problem
 
-<!-- What user-visible problem would this feature solve? -->
+<!-- What problem would this solve? -->
 
-## Proposal
+## Proposed solution
 
-<!-- Sketch the solution. Trade-offs, alternatives considered, scope. -->
+## Acceptance criteria
 
-## Acceptance
-
-<!-- How will we know this is done? -->
+- [ ]

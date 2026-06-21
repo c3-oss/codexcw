@@ -1,0 +1,83 @@
+# codexcw
+
+`codexcw` runs the Codex CLI non-interactively through `codex exec --json`. It
+spawns Codex processes, decodes the JSONL event stream, and exposes each run as
+async streams, callbacks, results, and typed errors.
+
+The `codex` executable must be available on `PATH`, authenticated, and new
+enough to support `codex exec --json`. Defaults are automation-friendly: JSONL
+streaming, ephemeral sessions, read-only sandbox, approval policy `never`, color
+disabled, and the Git repository check skipped.
+
+## Usage
+
+```rust,no_run
+use codexcw::{Request, Runner};
+
+#[tokio::main]
+async fn main() -> Result<(), codexcw::Error> {
+    let runner = Runner::new();
+    let result = runner.run(Request::new("diga oi")).await?;
+    println!("{}", result.final_message);
+    Ok(())
+}
+```
+
+## Streaming
+
+```rust,no_run
+use codexcw::{EventPayload, ItemKind, Request, Runner};
+use tokio_stream::StreamExt;
+
+# async fn run() -> Result<(), codexcw::Error> {
+let runner = Runner::new();
+let mut session = runner.start(Request::new("resuma este repo")).await?;
+let mut events = session.events();
+while let Some(event) = events.next().await {
+    if let EventPayload::ItemCompleted(item) = &event.payload {
+        if item.kind == ItemKind::AgentMessage {
+            println!("{}", item.text);
+        }
+    }
+}
+let result = session.wait().await?;
+# Ok(())
+# }
+```
+
+Every event keeps `raw` (the original JSON text) so callers can inspect new
+Codex event fields before the wrapper adds typed helpers.
+
+## Running many Codex instances
+
+```rust,no_run
+use codexcw::{ManyOptions, Request, Runner};
+
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let runner = Runner::new();
+let mut group = runner
+    .run_many(
+        vec![Request::new("review package A"), Request::new("review package B")],
+        ManyOptions { max_concurrent: 2, ..Default::default() },
+    )
+    .await;
+
+while let Some(run_event) = group.next_event().await {
+    println!("[{}] {}", run_event.index, run_event.event.kind);
+}
+
+let results = group.wait().await?;
+# let _ = results;
+# Ok(())
+# }
+```
+
+This crate is the Rust core behind the [`@c3-oss/codexcw`][npm] (npm) and
+[`codexcw`][pypi] (PyPI) packages.
+
+## License
+
+[CC0 1.0 Universal](https://github.com/c3-oss/codexcw/blob/master/LICENSE).
+
+[npm]: https://www.npmjs.com/package/@c3-oss/codexcw
+[pypi]: https://pypi.org/project/codexcw/

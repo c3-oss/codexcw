@@ -1,3 +1,3 @@
 module.exports = {
-  '*.md': 'markdownlint-cli2 --no-globs'
-}
+  "*.md": "markdownlint-cli2 --no-globs",
+};

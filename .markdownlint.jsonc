@@ -1,18 +1,12 @@
 {
-  // Baseline for new projects. Tighten individual rules in focused
-  // documentation cleanup PRs rather than blocking tooling adoption.
+  // Baseline-permissive: keep docs friction low while catching real issues.
+  "default": true,
   "MD010": false,
   "MD012": false,
   "MD013": false,
   "MD022": false,
   "MD024": false,
-  "MD025": {
-    "front_matter_title": ""
-  },
   "MD028": false,
-  "MD029": {
-    "style": "ordered"
-  },
   "MD030": false,
   "MD032": false,
   "MD033": false,
@@ -22,5 +16,7 @@
   "MD041": false,
   "MD049": false,
   "MD050": false,
-  "MD060": false
+  "MD060": false,
+  "MD025": { "front_matter_title": "" },
+  "MD029": { "style": "ordered" }
 }

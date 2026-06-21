@@ -1,0 +1,64 @@
+{
+  "name": "@c3-oss/codexcw",
+  "version": "0.1.0",
+  "description": "Run the Codex CLI non-interactively from Node.js, backed by a Rust core.",
+  "license": "CC0-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/codexcw.git"
+  },
+  "homepage": "https://github.com/c3-oss/codexcw",
+  "keywords": ["codex", "automation", "agent", "cli", "napi-rs"],
+  "type": "commonjs",
+  "main": "index.js",
+  "module": "index.mjs",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "binding.js",
+    "binding.d.ts"
+  ],
+  "napi": {
+    "binaryName": "codexcw",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@c3-oss/codexcw-darwin-x64": "0.1.0",
+    "@c3-oss/codexcw-darwin-arm64": "0.1.0",
+    "@c3-oss/codexcw-linux-x64-gnu": "0.1.0",
+    "@c3-oss/codexcw-linux-arm64-gnu": "0.1.0",
+    "@c3-oss/codexcw-linux-x64-musl": "0.1.0",
+    "@c3-oss/codexcw-linux-arm64-musl": "0.1.0",
+    "@c3-oss/codexcw-win32-x64-msvc": "0.1.0"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.7.2"
+  },
+  "scripts": {
+    "build": "napi build --platform --release --js binding.js --dts binding.d.ts",
+    "build:debug": "napi build --platform --js binding.js --dts binding.d.ts",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node --test \"__test__/**/*.test.mjs\""
+  }
+}

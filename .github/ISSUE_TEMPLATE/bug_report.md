@@ -1,14 +1,15 @@
 ---
 name: Bug report
-about: Report a defect or unexpected behavior
+about: Report a problem with codexcw
+title: ""
 labels: bug
 ---
 
 ## What happened?
 
-<!-- A clear, concise description of the bug. -->
+<!-- A clear description of the bug. -->
 
-## What did you expect to happen?
+## What did you expect?
 
 ## Steps to reproduce
 
@@ -18,16 +19,12 @@ labels: bug
 
 ## Environment
 
-- Version: <!-- module version, e.g. v0.1.0 -->
-- OS / Arch:
-- Install method: <!-- Go module or source checkout -->
+- Language and package (Go module / crate / @c3-oss/codexcw / PyPI codexcw) and version:
+- OS and arch:
+- Codex CLI version:
 
 ## Logs / output
 
-<details>
-<summary>Logs</summary>
-
 ```text
-```
 
-</details>
+```

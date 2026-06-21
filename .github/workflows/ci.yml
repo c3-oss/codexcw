@@ -34,18 +34,16 @@ jobs:
       - name: Run quality gates
         run: devbox run -- just quality
 
-  test:
-    name: tidy + vet + test
+  go-test:
+    name: go / tidy + vet + test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
-
       - name: Cache Go modules and build
         uses: actions/cache@v5
         with:
@@ -53,18 +51,13 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           key: ubuntu-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ubuntu-go-
-
+          restore-keys: ubuntu-go-
       - name: Tidy check
-        run: devbox run -- just tidy-check
-
+        run: devbox run -- just go-tidy-check
       - name: Vet
-        run: devbox run -- just vet
-
+        run: devbox run -- just go-vet
       - name: Test
         run: devbox run -- go test -race -count=1 -coverprofile=coverage.out ./...
-
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v7
@@ -73,41 +66,36 @@ jobs:
           path: coverage.out
           retention-days: 7
 
-  lint:
-    name: golangci-lint
+  go-lint:
+    name: go / golangci-lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
-
       - name: Run golangci-lint
-        run: devbox run -- just lint
+        run: devbox run -- just go-lint
 
-  security:
-    name: gosec + govulncheck
+  go-security:
+    name: go / gosec + govulncheck
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
-
       - name: Static security analysis (gosec)
-        run: devbox run -- just lint-sec
-
+        run: devbox run -- just go-lint-sec
       - name: Vulnerability scan (govulncheck)
-        run: devbox run -- just lint-vuln
+        run: devbox run -- just go-lint-vuln
 
-  build:
-    name: build / ${{ matrix.os }}
+  go-build:
+    name: go / build / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -116,12 +104,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
-
       - name: Cache Go modules and build
         uses: actions/cache@v5
         with:
@@ -130,8 +116,69 @@ jobs:
             ~/.cache/go-build
             ~/Library/Caches/go-build
           key: ${{ matrix.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ matrix.os }}-go-
-
+          restore-keys: ${{ matrix.os }}-go-
       - name: Build
-        run: devbox run -- just build
+        run: devbox run -- just go-build
+
+  rust:
+    name: rust / fmt + clippy + test + audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.15.0
+        with:
+          enable-cache: true
+      - name: Cache cargo and target
+        uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: devbox run -- just rust-fmt-check
+      - name: Clippy
+        run: devbox run -- just rust-lint
+      - name: Test
+        run: devbox run -- just rust-test
+      - name: Audit
+        run: devbox run -- just rust-audit
+
+  node:
+    name: node / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.15.0
+        with:
+          enable-cache: true
+      - name: Cache cargo and target
+        uses: Swatinem/rust-cache@v2
+      - name: Build native addon
+        run: devbox run -- just node-build
+      - name: Test
+        run: devbox run -- just node-test
+
+  python:
+    name: python / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.15.0
+        with:
+          enable-cache: true
+      - name: Cache cargo and target
+        uses: Swatinem/rust-cache@v2
+      - name: Build extension
+        run: devbox run -- just py-build
+      - name: Test
+        run: devbox run -- just py-test

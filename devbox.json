@@ -1,29 +1,40 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
-  "packages": [
-    "go@1.26",
-    "golangci-lint@2.12",
-    "gofumpt@0.10",
-    "gitleaks@8.28",
-    "lychee@0.23",
-    "markdownlint-cli2@0.21",
-    "syft@1.18",
-    "ripgrep@15.1",
-    "just@1.51",
-    "nodejs@24",
-    "pnpm@10.20",
-    "goreleaser@2.15"
-  ],
+  "packages": {
+    "go": "1.26",
+    "golangci-lint": "2.12",
+    "gofumpt": "0.10",
+    "goreleaser": "2.15",
+    "syft": "1.18",
+    "rustup": "1.28.2",
+    "gitleaks": "8.28",
+    "lychee": "0.23",
+    "markdownlint-cli2": "0.21",
+    "just": "1.51",
+    "nodejs": "24",
+    "pnpm": "10.20",
+    "ripgrep": "15.1",
+    "python": {
+      "version": "3.12",
+      "disable_plugin": true
+    },
+    "uv": "0.9",
+    "maturin": "1",
+    "cargo-deny": "latest",
+    "cargo-audit": "latest"
+  },
   "env": {
     "DEVBOX_COREPACK_ENABLED": "true"
   },
   "shell": {
     "init_hook": [
       "export GOBIN=$PWD/bin",
-      "export PATH=$GOBIN:$PATH",
-      "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi",
+      "export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}",
+      "export PATH=$GOBIN:$CARGO_HOME/bin:$PATH",
+      "rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy",
       "if [ ! -x \"$GOBIN/govulncheck\" ]; then go install golang.org/x/vuln/cmd/govulncheck@latest; fi",
-      "if [ ! -x \"$GOBIN/gosec\" ]; then go install github.com/securego/gosec/v2/cmd/gosec@latest; fi"
+      "if [ ! -x \"$GOBIN/gosec\" ]; then go install github.com/securego/gosec/v2/cmd/gosec@latest; fi",
+      "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi"
     ]
   }
 }

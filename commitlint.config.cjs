@@ -1,8 +1,10 @@
 module.exports = {
-  extends: ['@commitlint/config-conventional'],
+  extends: ["@commitlint/config-conventional"],
   rules: {
-    // Conventional Commits in this repo require an explicit scope, e.g.
-    //   feat(cli): add `status` subcommand
-    'scope-empty': [2, 'never']
-  }
-}
+    "scope-empty": [2, "never"],
+  },
+  // Dependabot writes "<type>(deps): Bump ..." with a capitalized subject,
+  // which conflicts with config-conventional's subject-case rule. Skip its
+  // bot-generated bumps while keeping the convention strict for humans.
+  ignores: [(message) => /^\S+\(deps(?:-dev)?\):\s+bump\s/i.test(message)],
+};

@@ -7,45 +7,45 @@ Thanks for helping improve this project.
 The toolchain is pinned in `devbox.json`. The recommended workflow:
 
 ```bash
-devbox shell      # enters the pinned environment, installs Node deps, wires hooks
-just ci           # runs the full local CI lane (tidy, vet, lint, sec, test, build)
+devbox shell      # enters the pinned environment (Go + Rust + Node + Python), wires hooks
+just ci           # runs the full local CI lane across all four languages
 ```
 
-Without devbox you'll need: Go 1.26+, just, Node 24 + pnpm 10,
-golangci-lint v2, gofumpt, gosec, govulncheck, gitleaks, lychee,
-markdownlint-cli2, and GoReleaser. Mileage may vary.
+Without devbox you'll need: a Go toolchain (see `go.mod`), a Rust toolchain (see
+`rust-toolchain.toml`), `just`, Node 24 + npm, Python 3.9+, `uv`, `maturin`, plus
+`gitleaks`, `lychee`, and `markdownlint-cli2`. `just tools` installs the Go and
+Rust dev tools (`govulncheck`, `gosec`, `cargo-deny`, `cargo-audit`).
 
 ## Branching and PRs
 
-- Branches off `master`. Open a PR targeting `master`.
-- Keep PRs focused. Refactors, bug fixes, and feature work belong in
-  separate PRs unless the dependency is structural.
-- CI must be green before merge: `quality`, `test`, `lint`, `security`,
-  and `build / {ubuntu,macos}-latest`.
+- Branch off `master`. Open a PR targeting `master`.
+- Keep PRs focused. Work in one language area when possible; mixed changes are
+  fine when they share a contract (e.g. a spec/fixture change touching all four).
+- CI must be green before merge: `quality`, the Go jobs, `rust`, `node`, `python`.
 
 ## Commit messages
 
-[Conventional Commits](https://www.conventionalcommits.org/) with a
-**mandatory scope**. Examples:
+[Conventional Commits](https://www.conventionalcommits.org/) with a **mandatory
+scope**. Examples:
 
-- `feat(cli): add status command`
-- `fix(server): handle empty body on POST /healthz`
-- `chore(deps): bump testify to v1.12`
+- `feat(core): add resume support`
+- `fix(go): allow configured codex subprocess launch`
+- `fix(node): surface decode errors as typed errors`
 - `docs(readme): clarify install instructions`
 
-The `commit-msg` hook validates every commit locally; CI re-validates the
-range on each PR.
+The `commit-msg` hook validates every commit locally; CI re-validates the range
+on each PR. (Dependabot `(deps)` bumps are exempt from the subject-case rule.)
 
 ## Style
 
-- Run `golangci-lint run` — it enforces the standard linter set plus the
-  `gofumpt` formatter and `goimports` ordering.
-- Tests use `testify/require` for fatal assertions and `testify/assert`
-  for soft checks.
+- **Go** — `gofumpt` + `goimports` via golangci-lint; `testify` for assertions.
+- **Rust** — `rustfmt` + `clippy -D warnings`; full doc coverage on the core crate.
+- Process behavior is tested against a fake `codex`; the same JSONL fixture drives
+  the Go, Rust, Node, and Python smoke tests. Keep the four in lockstep.
 - Comments explain *why*, not *what*.
 
 ## Releasing
 
-Tag a `v<semver>` on `master`. The tag is the Go module release, and CI creates
-the GitHub Release with a changelog. See [`AGENTS.md`](AGENTS.md#releases) for
-details.
+Push a tagged release for the affected artifact: `v<semver>` (Go),
+`rust-v<semver>`, `node-v<semver>`, or `py-v<semver>`. See
+[`AGENTS.md`](AGENTS.md#releases).

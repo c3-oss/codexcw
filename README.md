@@ -1,23 +1,31 @@
 # codexcw
 
 [![CI](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml/badge.svg)](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml)
-[![Release](https://github.com/c3-oss/codexcw/actions/workflows/release.yml/badge.svg)](https://github.com/c3-oss/codexcw/actions/workflows/release.yml)
 [![License: CC0 1.0](https://img.shields.io/badge/license-CC0%201.0-lightgrey.svg)](LICENSE)
 
-`codexcw` is a Go wrapper for running Codex CLI non-interactively through
-`codex exec --json`. It spawns Codex processes, decodes the JSONL event stream,
-and exposes the run as channels, callbacks, results, and typed errors.
+Run the Codex CLI non-interactively through `codex exec --json`: spawn Codex
+processes, decode the JSONL event stream, and expose each run as streams,
+callbacks, results, and typed errors.
 
-## Install
+`codexcw` ships as **four independent, idiomatic implementations** of the same
+contract — there is no FFI between them; each is native to its ecosystem:
 
-```bash
-go get github.com/c3-oss/codexcw
-```
+| Language   | Package                        | Install |
+| ---------- | ------------------------------ | ------- |
+| Go         | `github.com/c3-oss/codexcw`    | `go get github.com/c3-oss/codexcw` |
+| Rust       | `codexcw` (crates.io)          | `cargo add codexcw` |
+| TypeScript | `@c3-oss/codexcw` (npm)         | `npm install @c3-oss/codexcw` |
+| Python     | `codexcw` (PyPI)               | `pip install codexcw` |
 
-The `codex` executable must be available on `PATH`, authenticated, and new
-enough to support `codex exec --json`.
+The Go library lives at the repo root; the Rust core is in `crates/codexcw`, and
+the npm + PyPI bindings (backed by that Rust core) are in `bindings/`.
 
-## Library usage
+The `codex` executable must be on `PATH`, authenticated, and new enough to
+support `codex exec --json`. Defaults are automation-friendly: JSONL streaming,
+ephemeral sessions, read-only sandbox, approval policy `never`, color disabled,
+and the Git repository check skipped.
+
+## Go
 
 ```go
 package main
@@ -32,83 +40,76 @@ import (
 
 func main() {
 	runner := codexcw.New()
-	result, err := runner.Run(context.Background(), codexcw.Request{
-		Prompt: "diga oi",
-	})
+	result, err := runner.Run(context.Background(), codexcw.Request{Prompt: "diga oi"})
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	fmt.Println(result.FinalMessage)
 }
 ```
 
-Defaults are automation-friendly: JSONL streaming, prompt via stdin, ephemeral
-sessions, read-only sandbox, approval policy `never`, color disabled, and the
-Git repository check skipped.
+## Rust
 
-## Streaming
+```rust
+use codexcw::{Request, Runner};
 
-```go
-session, err := runner.Start(ctx, codexcw.Request{Prompt: "resuma este repo"})
-if err != nil {
-	return err
+#[tokio::main]
+async fn main() -> Result<(), codexcw::Error> {
+    let runner = Runner::new();
+    let result = runner.run(Request::new("diga oi")).await?;
+    println!("{}", result.final_message);
+    Ok(())
 }
-
-for event := range session.Events() {
-	if event.ItemCompleted != nil && event.ItemCompleted.Item.Type == codexcw.ItemAgentMessage {
-		fmt.Println(event.ItemCompleted.Item.Text)
-	}
-}
-
-result, err := session.Wait()
 ```
 
-Every event keeps `Raw json.RawMessage` so callers can inspect new Codex event
-fields before the wrapper adds typed helpers.
+## TypeScript / Node.js
 
-## Running many Codex instances
+```ts
+import { Runner } from '@c3-oss/codexcw'
 
-```go
-group, err := runner.RunMany(ctx, []codexcw.Request{
-	{Prompt: "review package A"},
-	{Prompt: "review package B"},
-}, codexcw.WithMaxConcurrent(2))
-if err != nil {
-	return err
+const runner = new Runner()
+const result = await runner.run({ prompt: 'diga oi' })
+console.log(result.finalMessage)
+
+// Streaming
+const session = await runner.start({ prompt: 'resuma este repo' })
+for await (const event of session.events()) {
+  if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
+    console.log(event.item.text)
+  }
 }
-
-for event := range group.Events() {
-	fmt.Printf("[%d] %s\n", event.Index, event.Event.Type)
-}
-
-results, err := group.Wait()
+await session.wait()
 ```
 
-## CLI example
+## Python
 
-The repository also includes a small example CLI for local smoke tests:
+```python
+from codexcw import Runner, Request
+
+runner = Runner()
+result = runner.run(Request(prompt="diga oi"))
+print(result.final_message)
+```
+
+An async API mirrors the sync one under `codexcw.aio`.
+
+## Development
 
 ```bash
-codexcw run "diga oi"
-printf 'diga oi' | codexcw run
+devbox shell       # enter the pinned toolchain (Go + Rust + Node + Python), wire hooks
+just ci            # local mirror of the PR pipeline (all four languages)
 ```
 
-`codexcw run` prints the final agent message to stdout and progress to stderr.
+Recipes are language-namespaced:
 
-## Quick reference
-
-```bash
-just build         # compile all cmd/* into bin/
-just run           # build then run the example CLI
-just test-race     # full race detector
-just lint          # golangci-lint v2
-just lint-sec      # gosec
-just lint-vuln     # govulncheck
-just quality       # markdown + link check + secret scan
-just ci            # local mirror of the PR pipeline
-just snapshot      # goreleaser --snapshot for release/changelog validation
-```
+| Target | Purpose |
+| --- | --- |
+| `just go-build` / `go-test` / `go-lint` | Go library |
+| `just rust-build` / `rust-test` / `rust-lint` | Rust core |
+| `just node-build` / `node-test` | npm package |
+| `just py-build` / `py-test` | PyPI package |
+| `just quality` | markdown lint, link check, secret scan |
+| `just ci` | the full local lane |
 
 See [`AGENTS.md`](AGENTS.md) for the canonical project guide.
 

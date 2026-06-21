@@ -1,0 +1,19 @@
+[package]
+name = "codexcw-py"
+description = "PyO3 bindings for the codexcw core."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "_codexcw"
+crate-type = ["cdylib"]
+
+[dependencies]
+codexcw.workspace = true
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }
+tokio.workspace = true
+tokio-stream.workspace = true
