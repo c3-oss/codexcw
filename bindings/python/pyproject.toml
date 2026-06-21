@@ -1,0 +1,35 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "codexcw"
+version = "0.1.0"
+description = "Run the Codex CLI non-interactively from Python, backed by a Rust core."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "CC0-1.0" }
+authors = [{ name = "c3-oss" }]
+keywords = ["codex", "automation", "agent", "cli"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX",
+  "Operating System :: MacOS",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/c3-oss/codexcw2"
+Repository = "https://github.com/c3-oss/codexcw2"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "codexcw._codexcw"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
