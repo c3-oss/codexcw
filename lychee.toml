@@ -1,0 +1,24 @@
+accept = [200, 204, 429]
+max_redirects = 5
+timeout = 20
+no_progress = true
+
+exclude = [
+  "^https?://localhost",
+  "^https?://127\\.0\\.0\\.1",
+  "^https?://0\\.0\\.0\\.0",
+  "example\\.com",
+  "github\\.com/.*/actions/workflows",
+  # Not yet live until the first release / while the repo is private.
+  "github\\.com/c3-oss/codexcw",
+  "npmjs\\.com/package/@c3-oss/codexcw",
+  "pypi\\.org/project/codexcw",
+  "crates\\.io/crates/codexcw",
+]
+
+exclude_path = [
+  "node_modules",
+  "target",
+  "dist",
+  ".venv",
+]

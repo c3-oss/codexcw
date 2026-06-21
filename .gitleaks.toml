@@ -1,0 +1,15 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated, vendored, and lockfile paths"
+paths = [
+  '''node_modules/''',
+  '''target/''',
+  '''\.venv/''',
+  '''dist/''',
+  '''Cargo\.lock$''',
+  '''pnpm-lock\.yaml$''',
+  '''package-lock\.json$''',
+  '''bindings/node/binding\.js$''',
+]

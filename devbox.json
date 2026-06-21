@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
+  "packages": [
+    "rustup@1.28.2",
+    "gitleaks@8.28",
+    "lychee@0.23",
+    "markdownlint-cli2@0.21",
+    "just@1.51",
+    "nodejs@24",
+    "pnpm@10.20",
+    "ripgrep@15.1",
+    "python@3.12",
+    "uv@0.9",
+    "maturin@1"
+  ],
+  "env": {
+    "DEVBOX_COREPACK_ENABLED": "true"
+  },
+  "shell": {
+    "init_hook": [
+      "export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}",
+      "export PATH=$CARGO_HOME/bin:$PATH",
+      "rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy",
+      "command -v cargo-deny >/dev/null 2>&1 || cargo install cargo-deny --locked",
+      "command -v cargo-audit >/dev/null 2>&1 || cargo install cargo-audit --locked",
+      "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi"
+    ]
+  }
+}
