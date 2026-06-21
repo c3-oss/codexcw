@@ -11,7 +11,9 @@
     "ripgrep@15.1",
     "python@3.12",
     "uv@0.9",
-    "maturin@1"
+    "maturin@1",
+    "cargo-deny@latest",
+    "cargo-audit@latest"
   ],
   "env": {
     "DEVBOX_COREPACK_ENABLED": "true"
@@ -21,8 +23,6 @@
       "export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}",
       "export PATH=$CARGO_HOME/bin:$PATH",
       "rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy",
-      "command -v cargo-deny >/dev/null 2>&1 || cargo install cargo-deny --locked",
-      "command -v cargo-audit >/dev/null 2>&1 || cargo install cargo-audit --locked",
       "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi"
     ]
   }
