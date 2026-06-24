@@ -571,7 +571,7 @@
     },
     "nodejs@24": {
       "last_modified": "2025-12-27T12:56:01Z",
-      "plugin_version": "0.0.3",
+      "plugin_version": "0.0.4",
       "resolved": "github:NixOS/nixpkgs/3edc4a30ed3903fdf6f90c837f961fa6b49582d1#nodejs_24",
       "source": "devbox-search",
       "version": "24.12.0",
@@ -805,7 +805,7 @@
     },
     "rustup@1.28.2": {
       "last_modified": "2026-03-21T07:29:51Z",
-      "plugin_version": "0.0.1",
+      "plugin_version": "0.0.4",
       "resolved": "github:NixOS/nixpkgs/09061f748ee21f68a089cd5d91ec1859cd93d0be#rustup",
       "source": "devbox-search",
       "version": "1.28.2",

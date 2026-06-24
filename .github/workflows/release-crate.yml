@@ -26,6 +26,7 @@ jobs:
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
+          devbox-version: 0.17.4
 
       - name: Verify packaging
         run: devbox run -- cargo publish -p codexcw --dry-run
