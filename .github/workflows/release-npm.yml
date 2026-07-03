@@ -1,8 +1,8 @@
 # Builds per-platform native addons and publishes @c3-oss/codexcw to npm.
 #
-# Triggered by tags of the form `node-v*`. The publish step is commented out
-# until the first release; the build matrix runs and uploads artifacts so the
-# pipeline is exercised.
+# Triggered by tags of the form `node-v*`. The build matrix produces the native
+# addons; the publish job ships the per-platform packages and the main package
+# with npm provenance (NPM_TOKEN).
 name: Release (npm)
 
 on:
@@ -21,18 +21,18 @@ defaults:
 jobs:
   build:
     name: build / ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, cross: true }
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, cross: true }
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, cross: true }
-          - { os: macos-latest, target: x86_64-apple-darwin }
-          - { os: macos-latest, target: aarch64-apple-darwin }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: aarch64-unknown-linux-gnu, cross: true }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl, cross: true }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: aarch64-unknown-linux-musl, cross: true }
+          - { os: macos-latest, runs-on: blacksmith-6vcpu-macos-latest, target: x86_64-apple-darwin }
+          - { os: macos-latest, runs-on: blacksmith-6vcpu-macos-latest, target: aarch64-apple-darwin }
+          - { os: windows-latest, runs-on: blacksmith-2vcpu-windows-2025, target: x86_64-pc-windows-msvc }
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -68,7 +68,7 @@ jobs:
     name: publish
     needs: build
     if: startsWith(github.ref, 'refs/tags/node-v')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -90,12 +90,9 @@ jobs:
       - name: Distribute artifacts into npm dirs
         run: npx napi artifacts --npm-dir npm --build-output-dir artifacts
 
-      # PLACEHOLDER — enable on the first release. Uses npm OIDC provenance;
-      # NPM_TOKEN is the fallback.
-      #
-      # - name: Publish
-      #   run: |
-      #     npx napi pre-publish -t npm --skip-gh-release
-      #     npm publish --access public --provenance
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish
+        run: |
+          npx napi pre-publish -t npm --skip-gh-release
+          npm publish --access public --provenance --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -10,7 +10,7 @@ permissions:
 jobs:
   quality:
     name: commit + docs + secrets
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -33,11 +33,15 @@ jobs:
         run: devbox run -- pnpm exec commitlint --config commitlint.config.cjs --from "$BASE_SHA" --to "$HEAD_SHA"
 
       - name: Run quality gates
+        env:
+          # Lychee falls back to anonymous GitHub requests without this, which
+          # are heavily rate-limited in CI.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: devbox run -- just quality
 
   go-test:
     name: go / tidy + vet + test
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -70,7 +74,7 @@ jobs:
 
   go-lint:
     name: go / golangci-lint
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -84,7 +88,7 @@ jobs:
 
   go-security:
     name: go / gosec + govulncheck
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -100,11 +104,15 @@ jobs:
 
   go-build:
     name: go / build / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            runs-on: blacksmith-2vcpu-ubuntu-2404
+          - os: macos-latest
+            runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -127,7 +135,7 @@ jobs:
 
   rust:
     name: rust / fmt + clippy + test + audit
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -149,11 +157,15 @@ jobs:
 
   node:
     name: node / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            runs-on: blacksmith-2vcpu-ubuntu-2404
+          - os: macos-latest
+            runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -171,11 +183,15 @@ jobs:
 
   python:
     name: python / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            runs-on: blacksmith-2vcpu-ubuntu-2404
+          - os: macos-latest
+            runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7

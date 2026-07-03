@@ -1,7 +1,8 @@
 # Builds wheels and an sdist and publishes `codexcw` to PyPI.
 #
-# Triggered by tags of the form `py-v*`. The publish step is commented out until
-# the first release; the wheel/sdist matrix runs and uploads artifacts.
+# Triggered by tags of the form `py-v*`. The wheel/sdist matrix builds the
+# artifacts; the publish job ships them to PyPI via Trusted Publishing (OIDC),
+# so no token is needed once the publisher is configured on PyPI.
 name: Release (PyPI)
 
 on:
@@ -16,18 +17,18 @@ permissions:
 jobs:
   wheels:
     name: wheels / ${{ matrix.os }} / ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64, manylinux: auto }
-          - { os: ubuntu-latest, target: aarch64, manylinux: auto }
-          - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_1 }
-          - { os: ubuntu-latest, target: aarch64, manylinux: musllinux_1_1 }
-          - { os: macos-latest, target: x86_64, manylinux: auto }
-          - { os: macos-latest, target: aarch64, manylinux: auto }
-          - { os: windows-latest, target: x64, manylinux: auto }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: x86_64, manylinux: auto }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: aarch64, manylinux: auto }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: x86_64, manylinux: musllinux_1_1 }
+          - { os: ubuntu-latest, runs-on: blacksmith-2vcpu-ubuntu-2404, target: aarch64, manylinux: musllinux_1_1 }
+          - { os: macos-latest, runs-on: blacksmith-6vcpu-macos-latest, target: x86_64, manylinux: auto }
+          - { os: macos-latest, runs-on: blacksmith-6vcpu-macos-latest, target: aarch64, manylinux: auto }
+          - { os: windows-latest, runs-on: blacksmith-2vcpu-windows-2025, target: x64, manylinux: auto }
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -49,7 +50,7 @@ jobs:
 
   sdist:
     name: sdist
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -71,7 +72,7 @@ jobs:
     name: publish
     needs: [wheels, sdist]
     if: startsWith(github.ref, 'refs/tags/py-v')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -79,10 +80,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # PLACEHOLDER — enable on the first release. Uses PyPI Trusted Publishing
-      # (OIDC); no token needed once the publisher is configured on PyPI.
-      #
-      # - name: Publish
-      #   uses: pypa/gh-action-pypi-publish@release/v1
-      #   with:
-      #     packages-dir: dist
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
