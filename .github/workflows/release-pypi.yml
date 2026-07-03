@@ -1,7 +1,8 @@
 # Builds wheels and an sdist and publishes `codexcw` to PyPI.
 #
-# Triggered by tags of the form `py-v*`. The publish step is commented out until
-# the first release; the wheel/sdist matrix runs and uploads artifacts.
+# Triggered by tags of the form `py-v*`. The wheel/sdist matrix builds the
+# artifacts; the publish job ships them to PyPI via Trusted Publishing (OIDC),
+# so no token is needed once the publisher is configured on PyPI.
 name: Release (PyPI)
 
 on:
@@ -79,10 +80,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # PLACEHOLDER — enable on the first release. Uses PyPI Trusted Publishing
-      # (OIDC); no token needed once the publisher is configured on PyPI.
-      #
-      # - name: Publish
-      #   uses: pypa/gh-action-pypi-publish@release/v1
-      #   with:
-      #     packages-dir: dist
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

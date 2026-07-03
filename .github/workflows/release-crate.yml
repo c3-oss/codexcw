@@ -1,8 +1,8 @@
 # Publishes the `codexcw` core crate to crates.io.
 #
-# Triggered by tags of the form `rust-v*` (e.g. `rust-v0.1.0`). The publish step
-# is intentionally commented out until the first release is cut; the active
-# `--dry-run` step verifies the crate packages cleanly.
+# Triggered by tags of the form `rust-v*` (e.g. `rust-v0.1.0`). A `--dry-run`
+# step verifies the crate packages cleanly, then it is published with
+# CARGO_REGISTRY_TOKEN.
 name: Release (crate)
 
 on:
@@ -31,14 +31,7 @@ jobs:
       - name: Verify packaging
         run: devbox run -- cargo publish -p codexcw --dry-run
 
-      # PLACEHOLDER — enable on the first release.
-      # Prefer crates.io Trusted Publishing (OIDC) via the official auth action;
-      # CARGO_REGISTRY_TOKEN is the fallback.
-      #
-      # - name: Authenticate (OIDC)
-      #   uses: rust-lang/crates-io-auth-action@v1
-      #   id: auth
-      # - name: Publish
-      #   run: devbox run -- cargo publish -p codexcw
-      #   env:
-      #     CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - name: Publish
+        run: devbox run -- cargo publish -p codexcw
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
