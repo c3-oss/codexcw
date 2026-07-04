@@ -42,9 +42,13 @@ jobs:
         with:
           node-version: 24
 
+      # Pin to the repo's rust-toolchain.toml channel so the cross target's
+      # rust-std lands on the toolchain `napi build` actually uses; installing
+      # it on `stable` leaves the pinned toolchain without `core` for the target.
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.90.0"
           targets: ${{ matrix.target }}
 
       - name: Install dependencies
