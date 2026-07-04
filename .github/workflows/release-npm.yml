@@ -71,7 +71,10 @@ jobs:
     name: publish
     needs: build
     if: startsWith(github.ref, 'refs/tags/node-v')
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # npm provenance is only issued on GitHub-hosted runners; Blacksmith is
+    # self-hosted. The heavy build matrix stays on Blacksmith; this small
+    # publish job runs github-hosted (free on public repos) to keep provenance.
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
