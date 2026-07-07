@@ -12,7 +12,7 @@ import pytest
 
 import codexcw
 import codexcw.aio
-from codexcw import CodexcwError, Request, Runner
+from codexcw import AccountUsageRequest, CodexcwError, Request, Runner, get_account_usage
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="fixture is a POSIX shell script"
@@ -37,6 +37,37 @@ def _runner_with_capture(tmp_path: Path) -> tuple[Runner, Path, Path]:
         },
     )
     return runner, args_file, stdin_file
+
+
+def _usage_fake(tmp_path: Path) -> Path:
+    fake = tmp_path / "codex-usage"
+    fake.write_text(
+        """#!/bin/sh
+set -eu
+: >"$CODEXCW_ARGS_FILE"
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >>"$CODEXCW_ARGS_FILE"
+done
+printf '%s\\n' "$CODEX_HOME" >"$CODEXCW_ENV_FILE"
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*)
+      printf '%s\\n' '{"id":2,"result":{"rateLimits":{"limitId":null,"limitName":null,"planType":"pro","rateLimitReachedType":null,"primary":{"usedPercent":12.5,"windowDurationMins":300,"resetsAt":1766948068},"credits":{"hasCredits":true,"unlimited":false,"balance":"7"},"individualLimit":{"limit":"100","used":25,"remainingPercent":"75","resetsAt":"1768000000"}},"rateLimitsByLimitId":{"spark":{"limitName":"Codex Spark","primary":{"usedPercent":8,"windowDurationMins":300,"resetsAt":1767000000}}}}}'
+      ;;
+    *'"method":"account/usage/read"'*)
+      printf '%s\\n' '{"id":3,"result":{"summary":{"lifetimeTokens":"12345678901234567890","peakDailyTokens":456,"longestRunningTurnSec":"789","currentStreakDays":3,"longestStreakDays":"9"},"dailyUsageBuckets":[{"startDate":"2026-07-07","tokens":"42"}]}}'
+      ;;
+    *'"method":"account/read"'*)
+      printf '%s\\n' '{"id":4,"result":{"account":{"type":"chatgpt","email":"stub@example.com","planType":"pro"},"requiresOpenaiAuth":false}}'
+      ;;
+  esac
+done
+"""
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    return fake
 
 
 def test_run_decodes_events_and_uses_safe_defaults(tmp_path):
@@ -117,6 +148,45 @@ def test_run_many_collects_results(tmp_path):
         assert result.result.final_message == "Oi."
 
 
+def test_get_account_usage_reads_limits(tmp_path):
+    fake = _usage_fake(tmp_path)
+    args_file = tmp_path / "usage-args.txt"
+    env_file = tmp_path / "usage-env.txt"
+    codex_home = tmp_path / "codex-home"
+
+    usage = get_account_usage(
+        AccountUsageRequest(
+            executable=str(fake),
+            env={
+                "CODEXCW_ARGS_FILE": str(args_file),
+                "CODEXCW_ENV_FILE": str(env_file),
+                "CODEX_HOME": str(codex_home),
+            },
+        )
+    )
+
+    assert usage.account.email == "stub@example.com"
+    assert usage.rate_limits.plan_type == "pro"
+    assert usage.rate_limits.primary.used_percent == 12.5
+    assert usage.rate_limits.credits.balance == "7"
+    assert usage.rate_limits.individual_limit.remaining_percent == 75.0
+    assert usage.rate_limits_by_limit_id["spark"].limit_name == "Codex Spark"
+    assert usage.token_usage.summary.lifetime_tokens == "12345678901234567890"
+    assert usage.token_usage.summary.peak_daily_tokens == "456"
+    assert usage.token_usage.daily_usage_buckets[0].tokens == "42"
+    assert "rateLimits" in usage.raw_rate_limits
+    assert "lifetimeTokens" in usage.raw_token_usage
+    assert args_file.read_text().strip().split("\n") == [
+        "-s",
+        "read-only",
+        "-a",
+        "untrusted",
+        "app-server",
+        "--stdio",
+    ]
+    assert env_file.read_text() == f"{codex_home}\n"
+
+
 async def test_async_run_and_stream(tmp_path):
     args_file = tmp_path / "args.txt"
     stdin_file = tmp_path / "stdin.txt"
@@ -134,3 +204,42 @@ async def test_async_run_and_stream(tmp_path):
 
     assert types == ["thread.started", "turn.started", "item.completed", "turn.completed"]
     assert result.final_message == "Oi."
+
+
+async def test_async_get_account_usage(tmp_path):
+    fake = _usage_fake(tmp_path)
+    usage = await codexcw.aio.get_account_usage(
+        AccountUsageRequest(
+            executable=str(fake),
+            env={
+                "CODEXCW_ARGS_FILE": str(tmp_path / "async-args.txt"),
+                "CODEXCW_ENV_FILE": str(tmp_path / "async-env.txt"),
+                "CODEX_HOME": str(tmp_path),
+            },
+        )
+    )
+
+    assert usage.account.email == "stub@example.com"
+    assert usage.rate_limits_by_limit_id["spark"].limit_name == "Codex Spark"
+    assert usage.token_usage.daily_usage_buckets[0].tokens == "42"
+
+
+@pytest.mark.skipif(
+    os.environ.get("CODEXCW_LIVE_CODEX") != "1",
+    reason="set CODEXCW_LIVE_CODEX=1 to run against the real codex executable",
+)
+def test_live_get_account_usage_and_fast_mode(tmp_path):
+    usage = get_account_usage()
+    assert usage.raw_rate_limits
+
+    runner = Runner()
+    result = runner.run(
+        Request(
+            prompt="Responda exatamente: OK",
+            dir=str(tmp_path),
+            ignore_rules=True,
+            config=[codexcw.ConfigOverride(key="service_tier", value='"priority"')],
+        )
+    )
+
+    assert "OK" in result.final_message.upper()

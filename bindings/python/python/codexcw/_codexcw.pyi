@@ -55,6 +55,66 @@ class PyOutcome:
     result: PyRunResult
     error: Optional[PyError]
 
+class PyAccountUsageAccount:
+    type: str
+    email: str
+    plan_type: str
+    requires_openai_auth: bool
+
+class PyAccountRateLimits:
+    limit_id: str
+    limit_name: str
+    primary: Optional[PyAccountRateLimitWindow]
+    secondary: Optional[PyAccountRateLimitWindow]
+    credits: Optional[PyAccountCredits]
+    individual_limit: Optional[PyAccountSpendLimit]
+    plan_type: str
+    rate_limit_reached_type: str
+
+class PyAccountRateLimitWindow:
+    used_percent: float
+    window_duration_mins: int
+    resets_at: int
+
+class PyAccountCredits:
+    has_credits: bool
+    unlimited: bool
+    balance: Optional[str]
+
+class PyAccountSpendLimit:
+    limit: float
+    used: float
+    remaining_percent: float
+    resets_at: int
+
+class PyAccountTokenUsageSummary:
+    lifetime_tokens: Optional[str]
+    peak_daily_tokens: Optional[str]
+    longest_running_turn_sec: Optional[str]
+    current_streak_days: Optional[str]
+    longest_streak_days: Optional[str]
+
+class PyAccountTokenUsageDailyBucket:
+    start_date: str
+    tokens: str
+
+class PyAccountTokenUsage:
+    summary: PyAccountTokenUsageSummary
+    daily_usage_buckets: List[PyAccountTokenUsageDailyBucket]
+
+class PyAccountUsage:
+    account: Optional[PyAccountUsageAccount]
+    token_usage: Optional[PyAccountTokenUsage]
+    rate_limits: PyAccountRateLimits
+    rate_limits_by_limit_id: dict
+    raw_rate_limits: str
+    raw_token_usage: Optional[str]
+    raw_account: Optional[str]
+
+class PyAccountUsageOutcome:
+    result: Optional[PyAccountUsage]
+    error: Optional[PyError]
+
 class PyRunEvent:
     run_id: str
     index: int
@@ -102,3 +162,5 @@ class Runner:
         max_concurrent: Optional[int] = ...,
         event_buffer: Optional[int] = ...,
     ) -> Group: ...
+
+def get_account_usage(req: object = ...) -> PyAccountUsageOutcome: ...

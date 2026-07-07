@@ -14,6 +14,15 @@ from dataclasses import dataclass
 from typing import Callable, Iterator, List, Optional
 
 from . import _codexcw
+from ._codexcw import PyAccountCredits as AccountCredits
+from ._codexcw import PyAccountRateLimits as AccountRateLimits
+from ._codexcw import PyAccountRateLimitWindow as AccountRateLimitWindow
+from ._codexcw import PyAccountSpendLimit as AccountSpendLimit
+from ._codexcw import PyAccountTokenUsage as AccountTokenUsage
+from ._codexcw import PyAccountTokenUsageDailyBucket as AccountTokenUsageDailyBucket
+from ._codexcw import PyAccountTokenUsageSummary as AccountTokenUsageSummary
+from ._codexcw import PyAccountUsage as AccountUsage
+from ._codexcw import PyAccountUsageAccount as AccountUsageAccount
 from ._codexcw import PyEvent as Event
 from ._codexcw import PyFileChange as FileChange
 from ._codexcw import PyItem as Item
@@ -22,6 +31,16 @@ from ._codexcw import PyRunResult as RunResult
 from ._codexcw import PyUsage as Usage
 
 __all__ = [
+    "AccountCredits",
+    "AccountRateLimitWindow",
+    "AccountRateLimits",
+    "AccountSpendLimit",
+    "AccountTokenUsage",
+    "AccountTokenUsageDailyBucket",
+    "AccountTokenUsageSummary",
+    "AccountUsage",
+    "AccountUsageAccount",
+    "AccountUsageRequest",
     "ApprovalPolicy",
     "CodexcwError",
     "ConfigOverride",
@@ -37,6 +56,7 @@ __all__ = [
     "SandboxMode",
     "Session",
     "Usage",
+    "get_account_usage",
 ]
 
 # String literals accepted by ``Request.sandbox`` and ``Request.approval``.
@@ -65,12 +85,34 @@ def _result_or_raise(outcome: "_codexcw.PyOutcome") -> RunResult:
     return outcome.result
 
 
+def _account_usage_or_raise(outcome: "_codexcw.PyAccountUsageOutcome") -> AccountUsage:
+    if outcome.error is not None:
+        raise CodexcwError(outcome.error)
+    if outcome.result is None:
+        raise RuntimeError("account usage result missing")
+    return outcome.result
+
+
 @dataclass
 class ConfigOverride:
     """One ``-c key=value`` config override."""
 
     key: str = ""
     value: str = ""
+
+
+@dataclass
+class AccountUsageRequest:
+    """Options for reading Codex account usage."""
+
+    executable: Optional[str] = None
+    env: Optional[dict] = None
+
+
+def get_account_usage(req: Optional[AccountUsageRequest] = None) -> AccountUsage:
+    """Reads Codex account usage and limits through ``codex app-server``."""
+
+    return _account_usage_or_raise(_codexcw.get_account_usage(req))
 
 
 @dataclass
