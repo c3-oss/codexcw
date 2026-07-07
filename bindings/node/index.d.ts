@@ -21,6 +21,86 @@ export interface Usage {
   totalTokens: number
 }
 
+/** Options for reading Codex account usage. */
+export interface AccountUsageRequest {
+  executable?: string
+  env?: Record<string, string>
+}
+
+/** Codex account limits and credits. */
+export interface AccountUsage {
+  account?: AccountUsageAccount
+  tokenUsage?: AccountTokenUsage
+  rateLimits: AccountRateLimits
+  rateLimitsByLimitId: Record<string, AccountRateLimits>
+  rawRateLimits: string
+  rawTokenUsage?: string
+  rawAccount?: string
+}
+
+/** Authenticated account reported by Codex. */
+export interface AccountUsageAccount {
+  type: string
+  email: string
+  planType: string
+  requiresOpenaiAuth: boolean
+}
+
+/** One Codex rate-limit set. */
+export interface AccountRateLimits {
+  limitId: string
+  limitName: string
+  primary?: AccountRateLimitWindow
+  secondary?: AccountRateLimitWindow
+  credits?: AccountCredits
+  individualLimit?: AccountSpendLimit
+  planType: string
+  rateLimitReachedType: string
+}
+
+/** One account usage window. */
+export interface AccountRateLimitWindow {
+  usedPercent: number
+  windowDurationMins: number
+  resetsAt: number
+}
+
+/** Codex credit balance snapshot. */
+export interface AccountCredits {
+  hasCredits: boolean
+  unlimited: boolean
+  balance?: string
+}
+
+/** Individual spend or credit-control limit. */
+export interface AccountSpendLimit {
+  limit: number
+  used: number
+  remainingPercent: number
+  resetsAt: number
+}
+
+/** Account token-usage summary reported by Codex. */
+export interface AccountTokenUsage {
+  summary: AccountTokenUsageSummary
+  dailyUsageBuckets: AccountTokenUsageDailyBucket[]
+}
+
+/** Aggregate account token-usage metrics. */
+export interface AccountTokenUsageSummary {
+  lifetimeTokens?: string
+  peakDailyTokens?: string
+  longestRunningTurnSec?: string
+  currentStreakDays?: string
+  longestStreakDays?: string
+}
+
+/** One daily account token-usage bucket. */
+export interface AccountTokenUsageDailyBucket {
+  startDate: string
+  tokens: string
+}
+
 /** One file edit inside a `file_change` item. */
 export interface FileChange {
   path: string
@@ -187,3 +267,8 @@ export declare class Runner {
   /** Launches many processes with bounded concurrency. */
   runMany(reqs: Request[], options?: ManyOptions): Promise<Group>
 }
+
+/** Reads Codex account usage and limits through `codex app-server`. */
+export declare function getAccountUsage(
+  req?: AccountUsageRequest,
+): Promise<AccountUsage>

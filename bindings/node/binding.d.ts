@@ -46,6 +46,95 @@ export declare class Session {
   cancel(): void
 }
 
+/** Reads Codex account usage and limits through `codex app-server`. */
+export declare function getAccountUsageRaw(req?: JsAccountUsageRequest | undefined | null): Promise<JsAccountUsageOutcome>
+
+/** Codex credit balance snapshot. */
+export interface JsAccountCredits {
+  hasCredits: boolean
+  unlimited: boolean
+  balance?: string
+}
+
+/** One Codex rate-limit set. */
+export interface JsAccountRateLimits {
+  limitId: string
+  limitName: string
+  primary?: JsAccountRateLimitWindow
+  secondary?: JsAccountRateLimitWindow
+  credits?: JsAccountCredits
+  individualLimit?: JsAccountSpendLimit
+  planType: string
+  rateLimitReachedType: string
+}
+
+/** One account usage window. */
+export interface JsAccountRateLimitWindow {
+  usedPercent: number
+  windowDurationMins: number
+  resetsAt: number
+}
+
+/** Individual spend or credit-control limit. */
+export interface JsAccountSpendLimit {
+  limit: number
+  used: number
+  remainingPercent: number
+  resetsAt: number
+}
+
+/** Account token-usage summary reported by Codex. */
+export interface JsAccountTokenUsage {
+  summary: JsAccountTokenUsageSummary
+  dailyUsageBuckets: Array<JsAccountTokenUsageDailyBucket>
+}
+
+/** One daily account token-usage bucket. */
+export interface JsAccountTokenUsageDailyBucket {
+  startDate: string
+  tokens: string
+}
+
+/** Aggregate account token-usage metrics. */
+export interface JsAccountTokenUsageSummary {
+  lifetimeTokens?: string
+  peakDailyTokens?: string
+  longestRunningTurnSec?: string
+  currentStreakDays?: string
+  longestStreakDays?: string
+}
+
+/** Codex account limits and credits. */
+export interface JsAccountUsage {
+  account?: JsAccountUsageAccount
+  tokenUsage?: JsAccountTokenUsage
+  rateLimits: JsAccountRateLimits
+  rateLimitsByLimitId: Record<string, JsAccountRateLimits>
+  rawRateLimits: string
+  rawTokenUsage?: string
+  rawAccount?: string
+}
+
+/** Authenticated account reported by Codex. */
+export interface JsAccountUsageAccount {
+  type: string
+  email: string
+  planType: string
+  requiresOpenaiAuth: boolean
+}
+
+/** Account usage result paired with any terminal error. */
+export interface JsAccountUsageOutcome {
+  result?: JsAccountUsage
+  error?: Error
+}
+
+/** Options for reading Codex account usage. */
+export interface JsAccountUsageRequest {
+  executable?: string
+  env?: Record<string, string>
+}
+
 /** One `-c key=value` config override. */
 export interface JsConfigOverride {
   key: string

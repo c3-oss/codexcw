@@ -114,4 +114,17 @@ class Runner {
   }
 }
 
-module.exports = { Runner, Session, Group, CodexcwError }
+/** Reads Codex account usage and limits through `codex app-server`. */
+async function getAccountUsage(req) {
+  const outcome = await native.getAccountUsageRaw(req ?? null)
+  if (outcome.error) throw new CodexcwError(outcome.error)
+  if (!outcome.result) {
+    throw new CodexcwError({
+      kind: 'process',
+      message: 'account usage result missing',
+    })
+  }
+  return outcome.result
+}
+
+module.exports = { Runner, Session, Group, CodexcwError, getAccountUsage }
