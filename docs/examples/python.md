@@ -274,13 +274,14 @@ runner = Runner(executable="/opt/codex/bin/codex", env={"CODEX_HOME": "/tmp/code
 
 `get_account_usage` reads account limits and credits through `codex app-server`.
 It accepts an executable override and child-process environment. `CODEX_HOME`
-defaults to `~/.codex` when it is not set.
+defaults to `~/.codex` when it is not set. `timeout` bounds each JSON-RPC
+request, in seconds; `None` uses the 10-second default.
 
 ```python
 # Sync
 from codexcw import AccountUsageRequest, get_account_usage
 
-usage = get_account_usage(AccountUsageRequest(env={"CODEX_HOME": "/tmp/codex-home"}))
+usage = get_account_usage(AccountUsageRequest(env={"CODEX_HOME": "/tmp/codex-home"}, timeout=5.0))
 
 if usage.account is not None:
     print("account:", usage.account.email)
@@ -289,6 +290,9 @@ if usage.rate_limits.primary is not None:
 if usage.token_usage is not None:
     print("lifetime tokens:", usage.token_usage.summary.lifetime_tokens)
 ```
+
+`account` and `token_usage` are `None` when codex answers those reads with a
+JSON-RPC error; transport errors and timeouts fail the whole call.
 
 ```python
 # Async

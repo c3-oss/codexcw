@@ -308,13 +308,15 @@ runner := codexcw.New(
 
 `GetAccountUsage` reads account limits and credits through `codex app-server`.
 It accepts the same executable/env shape used by runners. `CODEX_HOME` defaults
-to `~/.codex` when it is not set.
+to `~/.codex` when it is not set. `Timeout` bounds each JSON-RPC request; zero
+or negative values use the 10-second default.
 
 ```go
 usage, err := codexcw.GetAccountUsage(ctx, codexcw.AccountUsageRequest{
 	Env: map[string]string{
 		"CODEX_HOME": "/tmp/codex-home",
 	},
+	Timeout: 5 * time.Second,
 })
 if err != nil {
 	log.Fatal(err)
@@ -330,6 +332,9 @@ if usage.TokenUsage != nil {
 	fmt.Println("lifetime tokens:", usage.TokenUsage.Summary.LifetimeTokens)
 }
 ```
+
+`Account` and `TokenUsage` are nil when codex answers those reads with a
+JSON-RPC error; transport errors and timeouts fail the whole call.
 
 ## Error handling
 

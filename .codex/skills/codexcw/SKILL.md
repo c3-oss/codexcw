@@ -48,7 +48,8 @@ executable must be on `PATH`, authenticated, and support `codex exec --json`.
   `--dangerously-bypass-approvals-and-sandbox`. No sandbox, no approvals — only in
   a disposable, fully-trusted environment.
 - **Read account usage:** call the account usage helper with optional
-  executable/env overrides; `CODEX_HOME` defaults to `~/.codex`.
+  executable/env overrides and a per-request timeout (10 s default);
+  `CODEX_HOME` defaults to `~/.codex`.
 
 ## Full recipes
 

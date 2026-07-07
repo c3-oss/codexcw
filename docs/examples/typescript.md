@@ -222,13 +222,15 @@ const runner = new Runner({
 
 `getAccountUsage` reads account limits and credits through `codex app-server`.
 It accepts an executable override and child-process environment. `CODEX_HOME`
-defaults to `~/.codex` when it is not set.
+defaults to `~/.codex` when it is not set. `timeoutMs` bounds each JSON-RPC
+request and defaults to 10 seconds.
 
 ```ts
 import { getAccountUsage } from '@c3-oss/codexcw'
 
 const usage = await getAccountUsage({
   env: { CODEX_HOME: '/tmp/codex-home' },
+  timeoutMs: 5000,
 })
 
 if (usage.account) {
@@ -241,6 +243,9 @@ if (usage.tokenUsage) {
   console.log('lifetime tokens:', usage.tokenUsage.summary.lifetimeTokens)
 }
 ```
+
+`account` and `tokenUsage` are undefined when codex answers those reads with a
+JSON-RPC error; transport errors and timeouts reject the whole call.
 
 ## Error handling
 

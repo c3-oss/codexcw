@@ -27,8 +27,9 @@ and the Git repository check skipped.
 
 Account token usage and limits are available through separate helpers
 (`GetAccountUsage`, `get_account_usage`, `getAccountUsage`) that call
-`codex app-server --stdio`. They accept a custom executable and environment; the
-helpers use `~/.codex` for `CODEX_HOME` when it is not set.
+`codex app-server --stdio`. They accept a custom executable, environment, and
+per-request timeout (10 seconds by default); the helpers use `~/.codex` for
+`CODEX_HOME` when it is not set.
 
 ## Go
 
