@@ -160,6 +160,7 @@ done
       CODEXCW_ENV_FILE: envFile,
       CODEX_HOME: codexHome,
     },
+    timeoutMs: 5000,
   })
 
   assert.equal(usage.account.email, 'stub@example.com')
@@ -184,6 +185,38 @@ done
     '--stdio',
   ])
   assert.equal(readFileSync(envFile, 'utf8'), `${codexHome}\n`)
+})
+
+test('getAccountUsage timeoutMs bounds slow JSON-RPC reads', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codexcw-usage-timeout-'))
+  const fake = join(dir, 'codex')
+  writeFileSync(
+    fake,
+    `#!/bin/sh
+set -eu
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*)
+      printf '%s\\n' '{"id":2,"result":{"rateLimits":{"planType":"pro"}}}'
+      ;;
+    *'"method":"account/usage/read"'*) sleep 5 >/dev/null 2>&1 ;;
+  esac
+done
+`,
+  )
+  chmodSync(fake, 0o755)
+
+  await assert.rejects(
+    getAccountUsage({ executable: fake, timeoutMs: 200 }),
+    (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'process')
+      assert.match(err.message, /timeout waiting for account\/usage\/read/)
+      return true
+    },
+  )
 })
 
 test('ESM entrypoint re-exports getAccountUsage', async () => {

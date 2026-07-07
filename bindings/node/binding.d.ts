@@ -133,6 +133,8 @@ export interface JsAccountUsageOutcome {
 export interface JsAccountUsageRequest {
   executable?: string
   env?: Record<string, string>
+  /** Per-request JSON-RPC timeout in milliseconds. Defaults to 10 seconds. */
+  timeoutMs?: number
 }
 
 /** One `-c key=value` config override. */

@@ -25,6 +25,8 @@ export interface Usage {
 export interface AccountUsageRequest {
   executable?: string
   env?: Record<string, string>
+  /** Per-request JSON-RPC timeout in milliseconds. Defaults to 10 seconds. */
+  timeoutMs?: number
 }
 
 /** Codex account limits and credits. */

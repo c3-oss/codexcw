@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use napi_derive::napi;
 use tokio::sync::Mutex;
@@ -114,6 +114,8 @@ pub struct JsOutcome {
 pub struct JsAccountUsageRequest {
     pub executable: Option<String>,
     pub env: Option<HashMap<String, String>>,
+    /// Per-request JSON-RPC timeout in milliseconds. Defaults to 10 seconds.
+    pub timeout_ms: Option<u32>,
 }
 
 /// Codex account limits and credits.
@@ -369,6 +371,9 @@ fn to_core_account_usage_request(req: Option<JsAccountUsageRequest>) -> CoreAcco
         Some(req) => CoreAccountUsageRequest {
             executable: req.executable,
             env: req.env.unwrap_or_default().into_iter().collect(),
+            timeout: req
+                .timeout_ms
+                .map(|ms| Duration::from_millis(u64::from(ms))),
         },
         None => CoreAccountUsageRequest::default(),
     }
