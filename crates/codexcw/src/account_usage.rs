@@ -3,18 +3,21 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{json, value::RawValue, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdout, Command};
+use tokio::process::{ChildStdout, Command};
 use tokio::time::timeout;
 
+use crate::runner::{drain_stderr, DEFAULT_STDERR_LIMIT};
+use crate::tail::TailBuffer;
 use crate::Error;
 
 const INIT_TIMEOUT: Duration = Duration::from_secs(8);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Configures one Codex account usage lookup.
 #[derive(Clone, Debug, Default)]
@@ -23,6 +26,8 @@ pub struct AccountUsageRequest {
     pub executable: Option<String>,
     /// Environment variables for the Codex app-server child process.
     pub env: Vec<(String, String)>,
+    /// Per-request JSON-RPC timeout. Defaults to 10 seconds.
+    pub timeout: Option<Duration>,
 }
 
 /// Account limits and credits reported by Codex app-server.
@@ -245,6 +250,7 @@ struct AccountResponse {
 #[derive(Debug, Deserialize)]
 struct RpcMessage {
     id: Option<u64>,
+    method: Option<String>,
     result: Option<Box<RawValue>>,
     error: Option<RpcError>,
 }
@@ -254,14 +260,31 @@ struct RpcError {
     message: Option<String>,
 }
 
+/// A JSON-RPC reply from the server; transport failures surface as `Err` from
+/// [`rpc_request`] instead.
+enum RpcReply {
+    Result(Box<RawValue>),
+    Error(String),
+}
+
+impl RpcReply {
+    fn into_result(self) -> Result<Box<RawValue>, Error> {
+        match self {
+            RpcReply::Result(value) => Ok(value),
+            RpcReply::Error(message) => Err(Error::Process(message)),
+        }
+    }
+}
+
 /// Reads Codex account usage and limits through `codex app-server`.
 pub async fn get_account_usage(req: AccountUsageRequest) -> Result<AccountUsage, Error> {
     let executable = req
         .executable
         .as_deref()
         .filter(|s| !s.is_empty())
-        .unwrap_or("codex");
+        .unwrap_or(crate::DEFAULT_EXECUTABLE);
     let env = account_usage_env(&req.env);
+    let request_timeout = req.timeout.unwrap_or(REQUEST_TIMEOUT);
 
     let mut child = Command::new(executable)
         .args([
@@ -275,7 +298,7 @@ pub async fn get_account_usage(req: AccountUsageRequest) -> Result<AccountUsage,
         .envs(env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|err| Error::Process(format!("start codex app-server: {err}")))?;
@@ -288,74 +311,107 @@ pub async fn get_account_usage(req: AccountUsageRequest) -> Result<AccountUsage,
         .stdout
         .take()
         .ok_or_else(|| Error::Process("open codex app-server stdout".to_string()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| Error::Process("open codex app-server stderr".to_string()))?;
     let mut lines = BufReader::new(stdout).lines();
+    let tail = Arc::new(TailBuffer::new(DEFAULT_STDERR_LIMIT));
+    let stderr_task = tokio::spawn(drain_stderr(stderr, tail.clone()));
+
+    let outcome = read_account_usage(&mut stdin, &mut lines, request_timeout).await;
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    let _ = stderr_task.await;
+
+    outcome.map_err(|err| attach_stderr(err, &tail.snapshot()))
+}
+
+async fn read_account_usage(
+    stdin: &mut tokio::process::ChildStdin,
+    lines: &mut Lines<BufReader<ChildStdout>>,
+    request_timeout: Duration,
+) -> Result<AccountUsage, Error> {
     let mut next_id = 0_u64;
 
     rpc_request(
-        &mut child,
-        &mut stdin,
-        &mut lines,
+        stdin,
+        lines,
         &mut next_id,
         "initialize",
         Some(json!({"clientInfo":{"name":"codexcw","version":"0.1.0"}})),
         INIT_TIMEOUT,
     )
     .await
+    .and_then(RpcReply::into_result)
     .map_err(|err| Error::Process(format!("initialize codex app-server: {err}")))?;
-    rpc_notify(&mut stdin, "initialized", json!({})).await?;
+    rpc_notify(stdin, "initialized", json!({})).await?;
 
     let raw_rate_limits = rpc_request(
-        &mut child,
-        &mut stdin,
-        &mut lines,
+        stdin,
+        lines,
         &mut next_id,
         "account/rateLimits/read",
         None,
-        REQUEST_TIMEOUT,
+        request_timeout,
     )
     .await
+    .and_then(RpcReply::into_result)
     .map_err(|err| Error::Process(format!("read codex account rate limits: {err}")))?;
     let rate_limits: RateLimitsResponse = serde_json::from_str(raw_rate_limits.get())
         .map_err(|err| Error::Process(format!("decode codex account rate limits: {err}")))?;
 
-    let raw_token_usage = rpc_request(
-        &mut child,
-        &mut stdin,
-        &mut lines,
+    // The two reads below are optional: a JSON-RPC error means this codex
+    // build does not expose them, so their fields stay unset. Transport
+    // failures still abort the whole call.
+    let raw_token_usage = match rpc_request(
+        stdin,
+        lines,
         &mut next_id,
         "account/usage/read",
         None,
-        REQUEST_TIMEOUT,
+        request_timeout,
     )
     .await
-    .ok();
-    let token_usage = raw_token_usage
-        .as_ref()
-        .and_then(|raw| serde_json::from_str::<AccountTokenUsage>(raw.get()).ok());
+    .map_err(|err| Error::Process(format!("read codex account usage: {err}")))?
+    {
+        RpcReply::Result(value) => Some(value),
+        RpcReply::Error(_) => None,
+    };
+    let token_usage = match &raw_token_usage {
+        Some(raw) => Some(
+            serde_json::from_str::<AccountTokenUsage>(raw.get())
+                .map_err(|err| Error::Process(format!("decode codex account usage: {err}")))?,
+        ),
+        None => None,
+    };
 
-    let raw_account = rpc_request(
-        &mut child,
-        &mut stdin,
-        &mut lines,
+    let raw_account = match rpc_request(
+        stdin,
+        lines,
         &mut next_id,
         "account/read",
         Some(json!({})),
-        REQUEST_TIMEOUT,
+        request_timeout,
     )
     .await
-    .ok();
-    let account = raw_account
-        .as_ref()
-        .and_then(|raw| serde_json::from_str::<AccountResponse>(raw.get()).ok())
-        .and_then(|response| {
+    .map_err(|err| Error::Process(format!("read codex account: {err}")))?
+    {
+        RpcReply::Result(value) => Some(value),
+        RpcReply::Error(_) => None,
+    };
+    let account = match &raw_account {
+        Some(raw) => {
+            let response: AccountResponse = serde_json::from_str(raw.get())
+                .map_err(|err| Error::Process(format!("decode codex account: {err}")))?;
             response.account.map(|mut account| {
                 account.requires_openai_auth = response.requires_openai_auth;
                 account
             })
-        });
-
-    let _ = child.kill().await;
-    let _ = child.wait().await;
+        }
+        None => None,
+    };
 
     Ok(AccountUsage {
         account,
@@ -368,15 +424,25 @@ pub async fn get_account_usage(req: AccountUsageRequest) -> Result<AccountUsage,
     })
 }
 
+fn attach_stderr(err: Error, stderr: &str) -> Error {
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+        return err;
+    }
+    match err {
+        Error::Process(message) => Error::Process(format!("{message}: {stderr}")),
+        other => other,
+    }
+}
+
 async fn rpc_request(
-    child: &mut Child,
     stdin: &mut tokio::process::ChildStdin,
     lines: &mut Lines<BufReader<ChildStdout>>,
     next_id: &mut u64,
     method: &str,
     params: Option<Value>,
     duration: Duration,
-) -> Result<Box<RawValue>, Error> {
+) -> Result<RpcReply, Error> {
     *next_id += 1;
     let id = *next_id;
     let mut payload = json!({"id": id, "method": method});
@@ -393,19 +459,20 @@ async fn rpc_request(
             }
             Ok(Err(err)) => return Err(Error::Process(format!("read codex app-server: {err}"))),
             Err(_) => {
-                let _ = child.kill().await;
                 return Err(Error::Process(format!(
                     "codex app-server JSON-RPC timeout waiting for {method}"
-                )));
+                )))
             }
         };
         let message: RpcMessage = serde_json::from_str(&line)
             .map_err(|err| Error::Process(format!("decode codex app-server JSON-RPC: {err}")))?;
-        if message.id != Some(id) {
+        // Notifications and server-initiated requests carry a method; skip
+        // them so their ids never shadow our responses.
+        if message.method.is_some() || message.id != Some(id) {
             continue;
         }
         if let Some(error) = message.error {
-            return Err(Error::Process(
+            return Ok(RpcReply::Error(
                 error
                     .message
                     .unwrap_or_else(|| "codex app-server JSON-RPC error".to_string()),
@@ -413,6 +480,7 @@ async fn rpc_request(
         }
         return message
             .result
+            .map(RpcReply::Result)
             .ok_or_else(|| Error::Process("codex app-server response missing result".to_string()));
     }
 }

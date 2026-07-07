@@ -47,6 +47,8 @@
 
 #![warn(missing_docs)]
 
+pub(crate) const DEFAULT_EXECUTABLE: &str = "codex";
+
 mod account_usage;
 mod args;
 mod decoder;
