@@ -48,6 +48,26 @@ let result = session.wait().await?;
 Every event keeps `raw` (the original JSON text) so callers can inspect new
 Codex event fields before the wrapper adds typed helpers.
 
+## Account usage
+
+```rust,no_run
+use codexcw::{get_account_usage, AccountUsageRequest};
+
+# async fn run() -> Result<(), codexcw::Error> {
+let usage = get_account_usage(AccountUsageRequest {
+    env: vec![("CODEX_HOME".to_string(), "/tmp/codex-home".to_string())],
+    ..Default::default()
+}).await?;
+if let Some(primary) = &usage.rate_limits.primary {
+    println!("primary used: {}", primary.used_percent);
+}
+if let Some(token_usage) = &usage.token_usage {
+    println!("lifetime tokens: {:?}", token_usage.summary.lifetime_tokens);
+}
+# Ok(())
+# }
+```
+
 ## Running many Codex instances
 
 ```rust,no_run

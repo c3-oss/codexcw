@@ -229,6 +229,19 @@ _, _ = runner.Run(ctx, codexcw.Request{
 })
 ```
 
+## Fast mode (`/fast`)
+
+Codex Fast mode uses the `priority` service tier.
+
+```go
+_, _ = runner.Run(ctx, codexcw.Request{
+	Prompt: "...",
+	Config: []codexcw.ConfigOverride{
+		{Key: "service_tier", Value: `"priority"`},
+	},
+})
+```
+
 ## Structured output
 
 Ask Codex to conform its final message to a JSON Schema, and write it to a file.
@@ -289,6 +302,33 @@ runner := codexcw.New(
 	codexcw.WithExecutable("/opt/codex/bin/codex"),
 	codexcw.WithEnv("CODEX_HOME=/tmp/codex-home"),
 )
+```
+
+## Account usage and limits
+
+`GetAccountUsage` reads account limits and credits through `codex app-server`.
+It accepts the same executable/env shape used by runners. `CODEX_HOME` defaults
+to `~/.codex` when it is not set.
+
+```go
+usage, err := codexcw.GetAccountUsage(ctx, codexcw.AccountUsageRequest{
+	Env: map[string]string{
+		"CODEX_HOME": "/tmp/codex-home",
+	},
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+if usage.Account != nil {
+	fmt.Println("account:", usage.Account.Email)
+}
+if usage.RateLimits.Primary != nil {
+	fmt.Println("primary used:", usage.RateLimits.Primary.UsedPercent)
+}
+if usage.TokenUsage != nil {
+	fmt.Println("lifetime tokens:", usage.TokenUsage.Summary.LifetimeTokens)
+}
 ```
 
 ## Error handling

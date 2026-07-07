@@ -38,6 +38,16 @@ for event in session.events():
 result = session.wait()
 ```
 
+## Account usage
+
+```python
+from codexcw import AccountUsageRequest, get_account_usage
+
+usage = get_account_usage(AccountUsageRequest(env={"CODEX_HOME": "/tmp/codex-home"}))
+print(usage.rate_limits.primary.used_percent if usage.rate_limits.primary else None)
+print(usage.token_usage.summary.lifetime_tokens if usage.token_usage else None)
+```
+
 ## Running many Codex instances
 
 ```python

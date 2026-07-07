@@ -206,6 +206,19 @@ runner.run(req)
 await runner.run(req)
 ```
 
+## Fast mode (`/fast`)
+
+Codex Fast mode uses the ``priority`` service tier.
+
+```python
+req = Request(
+    prompt="...",
+    config=[ConfigOverride(key="service_tier", value='"priority"')],
+)
+runner.run(req)
+await runner.run(req)
+```
+
 ## Structured output
 
 ```python
@@ -255,6 +268,34 @@ runner.run(Request(prompt="resuma o diff abaixo", stdin=large_diff))
 
 ```python
 runner = Runner(executable="/opt/codex/bin/codex", env={"CODEX_HOME": "/tmp/codex-home"})
+```
+
+## Account usage and limits
+
+`get_account_usage` reads account limits and credits through `codex app-server`.
+It accepts an executable override and child-process environment. `CODEX_HOME`
+defaults to `~/.codex` when it is not set.
+
+```python
+# Sync
+from codexcw import AccountUsageRequest, get_account_usage
+
+usage = get_account_usage(AccountUsageRequest(env={"CODEX_HOME": "/tmp/codex-home"}))
+
+if usage.account is not None:
+    print("account:", usage.account.email)
+if usage.rate_limits.primary is not None:
+    print("primary used:", usage.rate_limits.primary.used_percent)
+if usage.token_usage is not None:
+    print("lifetime tokens:", usage.token_usage.summary.lifetime_tokens)
+```
+
+```python
+# Async
+from codexcw import AccountUsageRequest
+from codexcw.aio import get_account_usage
+
+usage = await get_account_usage(AccountUsageRequest(env={"CODEX_HOME": "/tmp/codex-home"}))
 ```
 
 ## Error handling
