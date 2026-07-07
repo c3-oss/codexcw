@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use napi_derive::napi;
 use tokio::sync::Mutex;
@@ -14,6 +14,13 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
 use codexcw::{
+    get_account_usage as core_get_account_usage, AccountCredits as CoreAccountCredits,
+    AccountRateLimitWindow as CoreAccountRateLimitWindow,
+    AccountRateLimits as CoreAccountRateLimits, AccountSpendLimit as CoreAccountSpendLimit,
+    AccountTokenUsage as CoreAccountTokenUsage,
+    AccountTokenUsageDailyBucket as CoreAccountTokenUsageDailyBucket,
+    AccountTokenUsageSummary as CoreAccountTokenUsageSummary, AccountUsage as CoreAccountUsage,
+    AccountUsageAccount as CoreAccountUsageAccount, AccountUsageRequest as CoreAccountUsageRequest,
     ApprovalPolicy, ConfigOverride, Event, EventPayload, Item, ManyOptions, Request, RunResult,
     Runner as CoreRunner, SandboxMode, Usage,
 };
@@ -99,6 +106,106 @@ pub struct JsError {
 #[napi(object)]
 pub struct JsOutcome {
     pub result: JsRunResult,
+    pub error: Option<JsError>,
+}
+
+/// Options for reading Codex account usage.
+#[napi(object)]
+pub struct JsAccountUsageRequest {
+    pub executable: Option<String>,
+    pub env: Option<HashMap<String, String>>,
+    /// Per-request JSON-RPC timeout in milliseconds. Defaults to 10 seconds.
+    pub timeout_ms: Option<u32>,
+}
+
+/// Codex account limits and credits.
+#[napi(object)]
+pub struct JsAccountUsage {
+    pub account: Option<JsAccountUsageAccount>,
+    pub token_usage: Option<JsAccountTokenUsage>,
+    pub rate_limits: JsAccountRateLimits,
+    pub rate_limits_by_limit_id: HashMap<String, JsAccountRateLimits>,
+    pub raw_rate_limits: String,
+    pub raw_token_usage: Option<String>,
+    pub raw_account: Option<String>,
+}
+
+/// Authenticated account reported by Codex.
+#[napi(object)]
+pub struct JsAccountUsageAccount {
+    #[napi(js_name = "type")]
+    pub kind: String,
+    pub email: String,
+    pub plan_type: String,
+    pub requires_openai_auth: bool,
+}
+
+/// One Codex rate-limit set.
+#[napi(object)]
+pub struct JsAccountRateLimits {
+    pub limit_id: String,
+    pub limit_name: String,
+    pub primary: Option<JsAccountRateLimitWindow>,
+    pub secondary: Option<JsAccountRateLimitWindow>,
+    pub credits: Option<JsAccountCredits>,
+    pub individual_limit: Option<JsAccountSpendLimit>,
+    pub plan_type: String,
+    pub rate_limit_reached_type: String,
+}
+
+/// One account usage window.
+#[napi(object)]
+pub struct JsAccountRateLimitWindow {
+    pub used_percent: f64,
+    pub window_duration_mins: i64,
+    pub resets_at: i64,
+}
+
+/// Codex credit balance snapshot.
+#[napi(object)]
+pub struct JsAccountCredits {
+    pub has_credits: bool,
+    pub unlimited: bool,
+    pub balance: Option<String>,
+}
+
+/// Individual spend or credit-control limit.
+#[napi(object)]
+pub struct JsAccountSpendLimit {
+    pub limit: f64,
+    pub used: f64,
+    pub remaining_percent: f64,
+    pub resets_at: i64,
+}
+
+/// Account token-usage summary reported by Codex.
+#[napi(object)]
+pub struct JsAccountTokenUsage {
+    pub summary: JsAccountTokenUsageSummary,
+    pub daily_usage_buckets: Vec<JsAccountTokenUsageDailyBucket>,
+}
+
+/// Aggregate account token-usage metrics.
+#[napi(object)]
+pub struct JsAccountTokenUsageSummary {
+    pub lifetime_tokens: Option<String>,
+    pub peak_daily_tokens: Option<String>,
+    pub longest_running_turn_sec: Option<String>,
+    pub current_streak_days: Option<String>,
+    pub longest_streak_days: Option<String>,
+}
+
+/// One daily account token-usage bucket.
+#[napi(object)]
+pub struct JsAccountTokenUsageDailyBucket {
+    pub start_date: String,
+    pub tokens: String,
+}
+
+/// Account usage result paired with any terminal error.
+#[napi(object)]
+pub struct JsAccountUsageOutcome {
+    pub result: Option<JsAccountUsage>,
     pub error: Option<JsError>,
 }
 
@@ -259,6 +366,19 @@ fn to_core_request(req: JsRequest) -> Result<Request, JsError> {
     })
 }
 
+fn to_core_account_usage_request(req: Option<JsAccountUsageRequest>) -> CoreAccountUsageRequest {
+    match req {
+        Some(req) => CoreAccountUsageRequest {
+            executable: req.executable,
+            env: req.env.unwrap_or_default().into_iter().collect(),
+            timeout: req
+                .timeout_ms
+                .map(|ms| Duration::from_millis(u64::from(ms))),
+        },
+        None => CoreAccountUsageRequest::default(),
+    }
+}
+
 fn to_js_usage(usage: &Usage) -> JsUsage {
     JsUsage {
         input_tokens: usage.input_tokens,
@@ -382,6 +502,123 @@ fn to_js_error(error: &codexcw::Error) -> JsError {
             code: None,
             stderr: None,
             line: None,
+        },
+    }
+}
+
+fn to_js_account_usage_account(account: &CoreAccountUsageAccount) -> JsAccountUsageAccount {
+    JsAccountUsageAccount {
+        kind: account.kind.clone(),
+        email: account.email.clone(),
+        plan_type: account.plan_type.clone(),
+        requires_openai_auth: account.requires_openai_auth,
+    }
+}
+
+fn to_js_account_window(window: &CoreAccountRateLimitWindow) -> JsAccountRateLimitWindow {
+    JsAccountRateLimitWindow {
+        used_percent: window.used_percent,
+        window_duration_mins: window.window_duration_mins,
+        resets_at: window.resets_at,
+    }
+}
+
+fn to_js_account_credits(credits: &CoreAccountCredits) -> JsAccountCredits {
+    JsAccountCredits {
+        has_credits: credits.has_credits,
+        unlimited: credits.unlimited,
+        balance: credits.balance.clone(),
+    }
+}
+
+fn to_js_account_spend_limit(limit: &CoreAccountSpendLimit) -> JsAccountSpendLimit {
+    JsAccountSpendLimit {
+        limit: limit.limit,
+        used: limit.used,
+        remaining_percent: limit.remaining_percent,
+        resets_at: limit.resets_at,
+    }
+}
+
+fn to_js_account_rate_limits(limits: &CoreAccountRateLimits) -> JsAccountRateLimits {
+    JsAccountRateLimits {
+        limit_id: limits.limit_id.clone(),
+        limit_name: limits.limit_name.clone(),
+        primary: limits.primary.as_ref().map(to_js_account_window),
+        secondary: limits.secondary.as_ref().map(to_js_account_window),
+        credits: limits.credits.as_ref().map(to_js_account_credits),
+        individual_limit: limits
+            .individual_limit
+            .as_ref()
+            .map(to_js_account_spend_limit),
+        plan_type: limits.plan_type.clone(),
+        rate_limit_reached_type: limits.rate_limit_reached_type.clone(),
+    }
+}
+
+fn to_js_account_token_usage_summary(
+    summary: &CoreAccountTokenUsageSummary,
+) -> JsAccountTokenUsageSummary {
+    JsAccountTokenUsageSummary {
+        lifetime_tokens: summary.lifetime_tokens.clone(),
+        peak_daily_tokens: summary.peak_daily_tokens.clone(),
+        longest_running_turn_sec: summary.longest_running_turn_sec.clone(),
+        current_streak_days: summary.current_streak_days.clone(),
+        longest_streak_days: summary.longest_streak_days.clone(),
+    }
+}
+
+fn to_js_account_token_usage_bucket(
+    bucket: &CoreAccountTokenUsageDailyBucket,
+) -> JsAccountTokenUsageDailyBucket {
+    JsAccountTokenUsageDailyBucket {
+        start_date: bucket.start_date.clone(),
+        tokens: bucket.tokens.clone(),
+    }
+}
+
+fn to_js_account_token_usage(usage: &CoreAccountTokenUsage) -> JsAccountTokenUsage {
+    JsAccountTokenUsage {
+        summary: to_js_account_token_usage_summary(&usage.summary),
+        daily_usage_buckets: usage
+            .daily_usage_buckets
+            .iter()
+            .map(to_js_account_token_usage_bucket)
+            .collect(),
+    }
+}
+
+fn to_js_account_usage(usage: &CoreAccountUsage) -> JsAccountUsage {
+    JsAccountUsage {
+        account: usage.account.as_ref().map(to_js_account_usage_account),
+        token_usage: usage.token_usage.as_ref().map(to_js_account_token_usage),
+        rate_limits: to_js_account_rate_limits(&usage.rate_limits),
+        rate_limits_by_limit_id: usage
+            .rate_limits_by_limit_id
+            .iter()
+            .map(|(key, limits)| (key.clone(), to_js_account_rate_limits(limits)))
+            .collect(),
+        raw_rate_limits: usage.raw_rate_limits.clone(),
+        raw_token_usage: usage.raw_token_usage.clone(),
+        raw_account: usage.raw_account.clone(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Account usage.
+// ---------------------------------------------------------------------------
+
+/// Reads Codex account usage and limits through `codex app-server`.
+#[napi]
+pub async fn get_account_usage_raw(req: Option<JsAccountUsageRequest>) -> JsAccountUsageOutcome {
+    match core_get_account_usage(to_core_account_usage_request(req)).await {
+        Ok(usage) => JsAccountUsageOutcome {
+            result: Some(to_js_account_usage(&usage)),
+            error: None,
+        },
+        Err(error) => JsAccountUsageOutcome {
+            result: None,
+            error: Some(to_js_error(&error)),
         },
     }
 }

@@ -5,4 +5,5 @@ export const Runner = mod.Runner
 export const Session = mod.Session
 export const Group = mod.Group
 export const CodexcwError = mod.CodexcwError
+export const getAccountUsage = mod.getAccountUsage
 export default mod

@@ -23,7 +23,7 @@ use crate::session::{Completion, RunOutcome, RunResult, Session};
 use crate::tail::TailBuffer;
 
 const DEFAULT_EVENT_BUFFER: usize = 1024;
-const DEFAULT_STDERR_LIMIT: usize = 1 << 20;
+pub(crate) const DEFAULT_STDERR_LIMIT: usize = 1 << 20;
 const DEFAULT_SCAN_MAX_BYTES: usize = 64 << 20;
 
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -207,7 +207,7 @@ pub struct RunnerBuilder {
 impl Default for RunnerBuilder {
     fn default() -> Self {
         RunnerBuilder {
-            executable: "codex".to_string(),
+            executable: crate::DEFAULT_EXECUTABLE.to_string(),
             env: Vec::new(),
             event_buffer: DEFAULT_EVENT_BUFFER,
             stderr_limit: DEFAULT_STDERR_LIMIT,
@@ -299,7 +299,7 @@ struct CollectCtx {
     schema_temp: Option<tempfile::NamedTempFile>,
 }
 
-async fn drain_stderr(mut stderr: ChildStderr, tail: Arc<TailBuffer>) {
+pub(crate) async fn drain_stderr(mut stderr: ChildStderr, tail: Arc<TailBuffer>) {
     let mut buf = [0u8; 8192];
     loop {
         match stderr.read(&mut buf).await {

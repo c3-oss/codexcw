@@ -14,8 +14,9 @@ where the language has both).
 Each page works through: quickstart, streaming events, per-event callbacks,
 **resuming a session**, sandbox modes, approval policies, **bypassing the sandbox
 and approvals**, bounded-concurrency batches, config overrides, structured
-output, working directories, model/profile selection, stdin input, custom
-executable/env, typed error handling, and cancellation.
+output, Fast mode (`/fast`), working directories, model/profile selection, stdin
+input, custom executable/env, account usage and limits, typed error handling,
+and cancellation.
 
 See the [README](../../README.md) for the cross-language overview and
 [AGENTS.md](../../AGENTS.md) for the project guide.

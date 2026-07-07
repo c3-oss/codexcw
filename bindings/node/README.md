@@ -29,8 +29,18 @@ const result = await runner.run({ prompt: 'say hi' })
 console.log(result.finalMessage)
 ```
 
+```ts
+import { getAccountUsage } from '@c3-oss/codexcw'
+
+const usage = await getAccountUsage({
+  env: { CODEX_HOME: '/tmp/codex-home' },
+})
+console.log(usage.rateLimits.primary?.usedPercent)
+console.log(usage.tokenUsage?.summary.lifetimeTokens)
+```
+
 Full recipes — streaming, resume, sandbox/approval, batches, structured output,
-and error handling — are in
+account usage, and error handling — are in
 [`docs/examples/typescript.md`](../../docs/examples/typescript.md).
 
 ## License

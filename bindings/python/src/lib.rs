@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
@@ -15,6 +15,13 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
 use codexcw::{
+    get_account_usage as core_get_account_usage, AccountCredits as CoreAccountCredits,
+    AccountRateLimitWindow as CoreAccountRateLimitWindow,
+    AccountRateLimits as CoreAccountRateLimits, AccountSpendLimit as CoreAccountSpendLimit,
+    AccountTokenUsage as CoreAccountTokenUsage,
+    AccountTokenUsageDailyBucket as CoreAccountTokenUsageDailyBucket,
+    AccountTokenUsageSummary as CoreAccountTokenUsageSummary, AccountUsage as CoreAccountUsage,
+    AccountUsageAccount as CoreAccountUsageAccount, AccountUsageRequest as CoreAccountUsageRequest,
     ApprovalPolicy, ConfigOverride, Event, EventPayload, Item, ManyOptions, Request, RunResult,
     Runner as CoreRunner, SandboxMode, Usage,
 };
@@ -153,6 +160,146 @@ pub struct PyOutcome {
     error: Option<PyError>,
 }
 
+/// Codex account limits and credits.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountUsage {
+    #[pyo3(get)]
+    account: Option<PyAccountUsageAccount>,
+    #[pyo3(get)]
+    token_usage: Option<PyAccountTokenUsage>,
+    #[pyo3(get)]
+    rate_limits: PyAccountRateLimits,
+    #[pyo3(get)]
+    rate_limits_by_limit_id: HashMap<String, PyAccountRateLimits>,
+    #[pyo3(get)]
+    raw_rate_limits: String,
+    #[pyo3(get)]
+    raw_token_usage: Option<String>,
+    #[pyo3(get)]
+    raw_account: Option<String>,
+}
+
+/// Authenticated account reported by Codex.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountUsageAccount {
+    #[pyo3(get, name = "type")]
+    kind: String,
+    #[pyo3(get)]
+    email: String,
+    #[pyo3(get)]
+    plan_type: String,
+    #[pyo3(get)]
+    requires_openai_auth: bool,
+}
+
+/// One Codex rate-limit set.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone, Default)]
+pub struct PyAccountRateLimits {
+    #[pyo3(get)]
+    limit_id: String,
+    #[pyo3(get)]
+    limit_name: String,
+    #[pyo3(get)]
+    primary: Option<PyAccountRateLimitWindow>,
+    #[pyo3(get)]
+    secondary: Option<PyAccountRateLimitWindow>,
+    #[pyo3(get)]
+    credits: Option<PyAccountCredits>,
+    #[pyo3(get)]
+    individual_limit: Option<PyAccountSpendLimit>,
+    #[pyo3(get)]
+    plan_type: String,
+    #[pyo3(get)]
+    rate_limit_reached_type: String,
+}
+
+/// One account usage window.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountRateLimitWindow {
+    #[pyo3(get)]
+    used_percent: f64,
+    #[pyo3(get)]
+    window_duration_mins: i64,
+    #[pyo3(get)]
+    resets_at: i64,
+}
+
+/// Codex credit balance snapshot.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountCredits {
+    #[pyo3(get)]
+    has_credits: bool,
+    #[pyo3(get)]
+    unlimited: bool,
+    #[pyo3(get)]
+    balance: Option<String>,
+}
+
+/// Individual spend or credit-control limit.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountSpendLimit {
+    #[pyo3(get)]
+    limit: f64,
+    #[pyo3(get)]
+    used: f64,
+    #[pyo3(get)]
+    remaining_percent: f64,
+    #[pyo3(get)]
+    resets_at: i64,
+}
+
+/// Account token-usage summary reported by Codex.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountTokenUsage {
+    #[pyo3(get)]
+    summary: PyAccountTokenUsageSummary,
+    #[pyo3(get)]
+    daily_usage_buckets: Vec<PyAccountTokenUsageDailyBucket>,
+}
+
+/// Aggregate account token-usage metrics.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountTokenUsageSummary {
+    #[pyo3(get)]
+    lifetime_tokens: Option<String>,
+    #[pyo3(get)]
+    peak_daily_tokens: Option<String>,
+    #[pyo3(get)]
+    longest_running_turn_sec: Option<String>,
+    #[pyo3(get)]
+    current_streak_days: Option<String>,
+    #[pyo3(get)]
+    longest_streak_days: Option<String>,
+}
+
+/// One daily account token-usage bucket.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountTokenUsageDailyBucket {
+    #[pyo3(get)]
+    start_date: String,
+    #[pyo3(get)]
+    tokens: String,
+}
+
+/// Account usage result paired with any terminal error.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyAccountUsageOutcome {
+    #[pyo3(get)]
+    result: Option<PyAccountUsage>,
+    #[pyo3(get)]
+    error: Option<PyError>,
+}
+
 /// One multiplexed event from `run_many`.
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
@@ -262,6 +409,23 @@ impl ReqData {
             resume_last: self.resume_last.unwrap_or(false),
             resume_all: self.resume_all.unwrap_or(false),
         })
+    }
+}
+
+#[derive(FromPyObject)]
+struct AccountUsageReqData {
+    executable: Option<String>,
+    env: Option<HashMap<String, String>>,
+    timeout: Option<f64>,
+}
+
+impl AccountUsageReqData {
+    fn into_core(self) -> CoreAccountUsageRequest {
+        CoreAccountUsageRequest {
+            executable: self.executable,
+            env: self.env.unwrap_or_default().into_iter().collect(),
+            timeout: self.timeout.map(Duration::from_secs_f64),
+        }
     }
 }
 
@@ -422,6 +586,121 @@ fn to_py_error(error: &codexcw::Error) -> PyError {
             code: None,
             stderr: None,
             line: None,
+        },
+    }
+}
+
+fn to_py_account_usage_account(account: &CoreAccountUsageAccount) -> PyAccountUsageAccount {
+    PyAccountUsageAccount {
+        kind: account.kind.clone(),
+        email: account.email.clone(),
+        plan_type: account.plan_type.clone(),
+        requires_openai_auth: account.requires_openai_auth,
+    }
+}
+
+fn to_py_account_window(window: &CoreAccountRateLimitWindow) -> PyAccountRateLimitWindow {
+    PyAccountRateLimitWindow {
+        used_percent: window.used_percent,
+        window_duration_mins: window.window_duration_mins,
+        resets_at: window.resets_at,
+    }
+}
+
+fn to_py_account_credits(credits: &CoreAccountCredits) -> PyAccountCredits {
+    PyAccountCredits {
+        has_credits: credits.has_credits,
+        unlimited: credits.unlimited,
+        balance: credits.balance.clone(),
+    }
+}
+
+fn to_py_account_spend_limit(limit: &CoreAccountSpendLimit) -> PyAccountSpendLimit {
+    PyAccountSpendLimit {
+        limit: limit.limit,
+        used: limit.used,
+        remaining_percent: limit.remaining_percent,
+        resets_at: limit.resets_at,
+    }
+}
+
+fn to_py_account_rate_limits(limits: &CoreAccountRateLimits) -> PyAccountRateLimits {
+    PyAccountRateLimits {
+        limit_id: limits.limit_id.clone(),
+        limit_name: limits.limit_name.clone(),
+        primary: limits.primary.as_ref().map(to_py_account_window),
+        secondary: limits.secondary.as_ref().map(to_py_account_window),
+        credits: limits.credits.as_ref().map(to_py_account_credits),
+        individual_limit: limits
+            .individual_limit
+            .as_ref()
+            .map(to_py_account_spend_limit),
+        plan_type: limits.plan_type.clone(),
+        rate_limit_reached_type: limits.rate_limit_reached_type.clone(),
+    }
+}
+
+fn to_py_account_token_usage_summary(
+    summary: &CoreAccountTokenUsageSummary,
+) -> PyAccountTokenUsageSummary {
+    PyAccountTokenUsageSummary {
+        lifetime_tokens: summary.lifetime_tokens.clone(),
+        peak_daily_tokens: summary.peak_daily_tokens.clone(),
+        longest_running_turn_sec: summary.longest_running_turn_sec.clone(),
+        current_streak_days: summary.current_streak_days.clone(),
+        longest_streak_days: summary.longest_streak_days.clone(),
+    }
+}
+
+fn to_py_account_token_usage_bucket(
+    bucket: &CoreAccountTokenUsageDailyBucket,
+) -> PyAccountTokenUsageDailyBucket {
+    PyAccountTokenUsageDailyBucket {
+        start_date: bucket.start_date.clone(),
+        tokens: bucket.tokens.clone(),
+    }
+}
+
+fn to_py_account_token_usage(usage: &CoreAccountTokenUsage) -> PyAccountTokenUsage {
+    PyAccountTokenUsage {
+        summary: to_py_account_token_usage_summary(&usage.summary),
+        daily_usage_buckets: usage
+            .daily_usage_buckets
+            .iter()
+            .map(to_py_account_token_usage_bucket)
+            .collect(),
+    }
+}
+
+fn to_py_account_usage(usage: &CoreAccountUsage) -> PyAccountUsage {
+    PyAccountUsage {
+        account: usage.account.as_ref().map(to_py_account_usage_account),
+        token_usage: usage.token_usage.as_ref().map(to_py_account_token_usage),
+        rate_limits: to_py_account_rate_limits(&usage.rate_limits),
+        rate_limits_by_limit_id: usage
+            .rate_limits_by_limit_id
+            .iter()
+            .map(|(key, limits)| (key.clone(), to_py_account_rate_limits(limits)))
+            .collect(),
+        raw_rate_limits: usage.raw_rate_limits.clone(),
+        raw_token_usage: usage.raw_token_usage.clone(),
+        raw_account: usage.raw_account.clone(),
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (req=None))]
+fn get_account_usage(py: Python<'_>, req: Option<AccountUsageReqData>) -> PyAccountUsageOutcome {
+    let core_req = req.map(AccountUsageReqData::into_core).unwrap_or_default();
+    let result = py.detach(|| runtime().block_on(core_get_account_usage(core_req)));
+    match result {
+        Ok(usage) => PyAccountUsageOutcome {
+            result: Some(to_py_account_usage(&usage)),
+            error: None,
+        },
+        Err(error) => PyAccountUsageOutcome {
+            result: None,
+            error: Some(to_py_error(&error)),
         },
     }
 }
@@ -749,7 +1028,18 @@ fn _codexcw(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRunResult>()?;
     m.add_class::<PyOutcome>()?;
     m.add_class::<PyError>()?;
+    m.add_class::<PyAccountUsage>()?;
+    m.add_class::<PyAccountUsageAccount>()?;
+    m.add_class::<PyAccountRateLimits>()?;
+    m.add_class::<PyAccountRateLimitWindow>()?;
+    m.add_class::<PyAccountCredits>()?;
+    m.add_class::<PyAccountSpendLimit>()?;
+    m.add_class::<PyAccountTokenUsage>()?;
+    m.add_class::<PyAccountTokenUsageSummary>()?;
+    m.add_class::<PyAccountTokenUsageDailyBucket>()?;
+    m.add_class::<PyAccountUsageOutcome>()?;
     m.add_class::<PyRunEvent>()?;
     m.add_class::<PyGroupResult>()?;
+    m.add_function(wrap_pyfunction!(get_account_usage, m)?)?;
     Ok(())
 }

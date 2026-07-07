@@ -155,6 +155,17 @@ await runner.run({
 })
 ```
 
+## Fast mode (`/fast`)
+
+Codex Fast mode uses the `priority` service tier.
+
+```ts
+await runner.run({
+  prompt: '...',
+  config: [{ key: 'service_tier', value: '"priority"' }],
+})
+```
+
 ## Structured output
 
 ```ts
@@ -206,6 +217,35 @@ const runner = new Runner({
   env: { CODEX_HOME: '/tmp/codex-home' },
 })
 ```
+
+## Account usage and limits
+
+`getAccountUsage` reads account limits and credits through `codex app-server`.
+It accepts an executable override and child-process environment. `CODEX_HOME`
+defaults to `~/.codex` when it is not set. `timeoutMs` bounds each JSON-RPC
+request and defaults to 10 seconds.
+
+```ts
+import { getAccountUsage } from '@c3-oss/codexcw'
+
+const usage = await getAccountUsage({
+  env: { CODEX_HOME: '/tmp/codex-home' },
+  timeoutMs: 5000,
+})
+
+if (usage.account) {
+  console.log('account:', usage.account.email)
+}
+if (usage.rateLimits.primary) {
+  console.log('primary used:', usage.rateLimits.primary.usedPercent)
+}
+if (usage.tokenUsage) {
+  console.log('lifetime tokens:', usage.tokenUsage.summary.lifetimeTokens)
+}
+```
+
+`account` and `tokenUsage` are undefined when codex answers those reads with a
+JSON-RPC error; transport errors and timeouts reject the whole call.
 
 ## Error handling
 

@@ -241,6 +241,18 @@ runner.run(Request {
 }).await?;
 ```
 
+## Fast mode (`/fast`)
+
+Codex Fast mode uses the `priority` service tier.
+
+```rust
+runner.run(Request {
+    prompt: "...".to_string(),
+    config: vec![ConfigOverride::new("service_tier", "\"priority\"")],
+    ..Default::default()
+}).await?;
+```
+
 ## Structured output
 
 ```rust
@@ -295,6 +307,38 @@ let runner = Runner::builder()
     .env("CODEX_HOME", "/tmp/codex-home")
     .build();
 ```
+
+## Account usage and limits
+
+`get_account_usage` reads account limits and credits through `codex app-server`.
+It accepts an executable override and child-process environment. `CODEX_HOME`
+defaults to `~/.codex` when it is not set. `timeout` bounds each JSON-RPC
+request; `None` uses the 10-second default.
+
+```rust
+use std::time::Duration;
+
+use codexcw::{get_account_usage, AccountUsageRequest};
+
+let usage = get_account_usage(AccountUsageRequest {
+    env: vec![("CODEX_HOME".to_string(), "/tmp/codex-home".to_string())],
+    timeout: Some(Duration::from_secs(5)),
+    ..Default::default()
+}).await?;
+
+if let Some(account) = &usage.account {
+    println!("account: {}", account.email);
+}
+if let Some(primary) = &usage.rate_limits.primary {
+    println!("primary used: {}", primary.used_percent);
+}
+if let Some(token_usage) = &usage.token_usage {
+    println!("lifetime tokens: {:?}", token_usage.summary.lifetime_tokens);
+}
+```
+
+`account` and `token_usage` are `None` when codex answers those reads with a
+JSON-RPC error; transport errors and timeouts fail the whole call.
 
 ## Error handling
 

@@ -26,6 +26,9 @@ pick the one matching your host language.
   resume, config overrides, output schema, dir/add-dirs, model/profile, stdin).
 - A **typed error** carrying a `kind`/variant (`exit`, `decode`, `codex`,
   `handler`, `cancelled`, `invalidRequest`, `promptRequired`, `process`).
+- A separate **account usage helper** (`GetAccountUsage`, `get_account_usage`,
+  `getAccountUsage`) that reads limits, credits, and token usage through
+  `codex app-server`.
 
 ## Safe defaults
 
@@ -40,9 +43,13 @@ executable must be on `PATH`, authenticated, and support `codex exec --json`.
   Resume requests must not set `dir`/`add_dirs`/`profile`.
 - **Loosen the sandbox:** set `sandbox` to `workspace-write` (or
   `danger-full-access`), optionally with `approval: on-request`.
+- **Fast mode (`/fast`):** set the config override `service_tier="priority"`.
 - **⚠️ Bypass entirely:** `dangerously_bypass_sandbox` runs with
   `--dangerously-bypass-approvals-and-sandbox`. No sandbox, no approvals — only in
   a disposable, fully-trusted environment.
+- **Read account usage:** call the account usage helper with optional
+  executable/env overrides and a per-request timeout (10 s default);
+  `CODEX_HOME` defaults to `~/.codex`.
 
 ## Full recipes
 

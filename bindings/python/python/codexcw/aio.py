@@ -16,12 +16,22 @@ from __future__ import annotations
 import asyncio
 from typing import AsyncIterator, Awaitable, Callable, List, Optional, Union
 
-from . import CodexcwError, Event, GroupResult, Request, RunEvent, RunResult
+from . import (
+    AccountUsage,
+    AccountUsageRequest,
+    CodexcwError,
+    Event,
+    GroupResult,
+    Request,
+    RunEvent,
+    RunResult,
+)
 from . import Group as _SyncGroup
 from . import Runner as _SyncRunner
 from . import Session as _SyncSession
+from . import get_account_usage as _sync_get_account_usage
 
-__all__ = ["Runner", "Session", "Group"]
+__all__ = ["Runner", "Session", "Group", "get_account_usage"]
 
 _Sentinel = object()
 
@@ -77,6 +87,12 @@ class Group:
 
     async def wait(self) -> List[GroupResult]:
         return await asyncio.to_thread(self._sync.wait)
+
+
+async def get_account_usage(req: Optional[AccountUsageRequest] = None) -> AccountUsage:
+    """Reads Codex account usage and limits through ``codex app-server``."""
+
+    return await asyncio.to_thread(_sync_get_account_usage, req)
 
 
 class Runner:

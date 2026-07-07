@@ -2,13 +2,13 @@
 // without a real Codex install. Unix-only (the fixture is a shell script).
 
 import assert from 'node:assert/strict'
-import { mkdtempSync, chmodSync, readFileSync } from 'node:fs'
+import { mkdtempSync, chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { Runner, CodexcwError } from '../index.js'
+import { Runner, CodexcwError, getAccountUsage } from '../index.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fakeCodex = join(here, 'fixtures', 'fake-codex.sh')
@@ -118,3 +118,128 @@ test('runMany collects results', async () => {
     assert.equal(r.result.finalMessage, 'Oi.')
   }
 })
+
+test('getAccountUsage reads account limits', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codexcw-usage-'))
+  const fake = join(dir, 'codex')
+  const argsFile = join(dir, 'args.txt')
+  const envFile = join(dir, 'env.txt')
+  const codexHome = join(dir, 'codex-home')
+  writeFileSync(
+    fake,
+    `#!/bin/sh
+set -eu
+: >"$CODEXCW_ARGS_FILE"
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >>"$CODEXCW_ARGS_FILE"
+done
+printf '%s\\n' "$CODEX_HOME" >"$CODEXCW_ENV_FILE"
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*)
+      printf '%s\\n' '{"id":2,"result":{"rateLimits":{"limitId":null,"limitName":null,"planType":"pro","rateLimitReachedType":null,"primary":{"usedPercent":12.5,"windowDurationMins":300,"resetsAt":1766948068},"credits":{"hasCredits":true,"unlimited":false,"balance":"7"},"individualLimit":{"limit":"100","used":25,"remainingPercent":"75","resetsAt":"1768000000"}},"rateLimitsByLimitId":{"spark":{"limitName":"Codex Spark","primary":{"usedPercent":8,"windowDurationMins":300,"resetsAt":1767000000}}}}}'
+      ;;
+    *'"method":"account/usage/read"'*)
+      printf '%s\\n' '{"id":3,"result":{"summary":{"lifetimeTokens":"12345678901234567890","peakDailyTokens":456,"longestRunningTurnSec":"789","currentStreakDays":3,"longestStreakDays":"9"},"dailyUsageBuckets":[{"startDate":"2026-07-07","tokens":"42"}]}}'
+      ;;
+    *'"method":"account/read"'*)
+      printf '%s\\n' '{"id":4,"result":{"account":{"type":"chatgpt","email":"stub@example.com","planType":"pro"},"requiresOpenaiAuth":false}}'
+      ;;
+  esac
+done
+`,
+  )
+  chmodSync(fake, 0o755)
+
+  const usage = await getAccountUsage({
+    executable: fake,
+    env: {
+      CODEXCW_ARGS_FILE: argsFile,
+      CODEXCW_ENV_FILE: envFile,
+      CODEX_HOME: codexHome,
+    },
+    timeoutMs: 5000,
+  })
+
+  assert.equal(usage.account.email, 'stub@example.com')
+  assert.equal(usage.rateLimits.planType, 'pro')
+  assert.equal(usage.rateLimits.primary.usedPercent, 12.5)
+  assert.equal(usage.rateLimits.credits.balance, '7')
+  assert.equal(usage.rateLimits.individualLimit.remainingPercent, 75)
+  assert.equal(usage.rateLimitsByLimitId.spark.limitName, 'Codex Spark')
+  assert.equal(usage.tokenUsage.summary.lifetimeTokens, '12345678901234567890')
+  assert.equal(usage.tokenUsage.summary.peakDailyTokens, '456')
+  assert.equal(usage.tokenUsage.dailyUsageBuckets[0].tokens, '42')
+  assert.match(usage.rawRateLimits, /rateLimits/)
+  assert.match(usage.rawTokenUsage, /lifetimeTokens/)
+
+  const args = readFileSync(argsFile, 'utf8').trim().split('\n')
+  assert.deepEqual(args, [
+    '-s',
+    'read-only',
+    '-a',
+    'untrusted',
+    'app-server',
+    '--stdio',
+  ])
+  assert.equal(readFileSync(envFile, 'utf8'), `${codexHome}\n`)
+})
+
+test('getAccountUsage timeoutMs bounds slow JSON-RPC reads', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codexcw-usage-timeout-'))
+  const fake = join(dir, 'codex')
+  writeFileSync(
+    fake,
+    `#!/bin/sh
+set -eu
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*)
+      printf '%s\\n' '{"id":2,"result":{"rateLimits":{"planType":"pro"}}}'
+      ;;
+    *'"method":"account/usage/read"'*) sleep 5 >/dev/null 2>&1 ;;
+  esac
+done
+`,
+  )
+  chmodSync(fake, 0o755)
+
+  await assert.rejects(
+    getAccountUsage({ executable: fake, timeoutMs: 200 }),
+    (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'process')
+      assert.match(err.message, /timeout waiting for account\/usage\/read/)
+      return true
+    },
+  )
+})
+
+test('ESM entrypoint re-exports getAccountUsage', async () => {
+  const esm = await import('../index.mjs')
+  assert.equal(typeof esm.getAccountUsage, 'function')
+})
+
+test(
+  'live getAccountUsage and fast-mode config use real codex',
+  { skip: process.env.CODEXCW_LIVE_CODEX !== '1' },
+  async () => {
+    const usage = await getAccountUsage()
+    assert.ok(usage.rawRateLimits.length > 0)
+
+    const dir = mkdtempSync(join(tmpdir(), 'codexcw-live-'))
+    const runner = new Runner()
+    const result = await runner.run({
+      prompt: 'Responda exatamente: OK',
+      dir,
+      ignoreRules: true,
+      config: [{ key: 'service_tier', value: '"priority"' }],
+    })
+
+    assert.match(result.finalMessage.toUpperCase(), /OK/)
+  },
+)

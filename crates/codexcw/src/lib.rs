@@ -47,6 +47,9 @@
 
 #![warn(missing_docs)]
 
+pub(crate) const DEFAULT_EXECUTABLE: &str = "codex";
+
+mod account_usage;
 mod args;
 mod decoder;
 mod error;
@@ -57,6 +60,11 @@ mod runner;
 mod session;
 mod tail;
 
+pub use account_usage::{
+    get_account_usage, AccountCredits, AccountRateLimitWindow, AccountRateLimits,
+    AccountSpendLimit, AccountTokenUsage, AccountTokenUsageDailyBucket, AccountTokenUsageSummary,
+    AccountUsage, AccountUsageAccount, AccountUsageRequest,
+};
 pub use error::{Error, GroupError};
 pub use event::{
     CodexErrorEvent, ErrorPayload, Event, EventKind, EventPayload, FileChange, Item, ItemKind,

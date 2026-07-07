@@ -11,9 +11,19 @@ The synchronous API lives here; :mod:`codexcw.aio` mirrors it with ``async``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Callable, Iterator, List, Optional
 
 from . import _codexcw
+from ._codexcw import PyAccountCredits as AccountCredits
+from ._codexcw import PyAccountRateLimits as AccountRateLimits
+from ._codexcw import PyAccountRateLimitWindow as AccountRateLimitWindow
+from ._codexcw import PyAccountSpendLimit as AccountSpendLimit
+from ._codexcw import PyAccountTokenUsage as AccountTokenUsage
+from ._codexcw import PyAccountTokenUsageDailyBucket as AccountTokenUsageDailyBucket
+from ._codexcw import PyAccountTokenUsageSummary as AccountTokenUsageSummary
+from ._codexcw import PyAccountUsage as AccountUsage
+from ._codexcw import PyAccountUsageAccount as AccountUsageAccount
 from ._codexcw import PyEvent as Event
 from ._codexcw import PyFileChange as FileChange
 from ._codexcw import PyItem as Item
@@ -22,6 +32,16 @@ from ._codexcw import PyRunResult as RunResult
 from ._codexcw import PyUsage as Usage
 
 __all__ = [
+    "AccountCredits",
+    "AccountRateLimitWindow",
+    "AccountRateLimits",
+    "AccountSpendLimit",
+    "AccountTokenUsage",
+    "AccountTokenUsageDailyBucket",
+    "AccountTokenUsageSummary",
+    "AccountUsage",
+    "AccountUsageAccount",
+    "AccountUsageRequest",
     "ApprovalPolicy",
     "CodexcwError",
     "ConfigOverride",
@@ -37,6 +57,7 @@ __all__ = [
     "SandboxMode",
     "Session",
     "Usage",
+    "get_account_usage",
 ]
 
 # String literals accepted by ``Request.sandbox`` and ``Request.approval``.
@@ -59,10 +80,25 @@ class CodexcwError(Exception):
         self.line: Optional[int] = info.line
 
 
-def _result_or_raise(outcome: "_codexcw.PyOutcome") -> RunResult:
+def _result_or_raise(outcome):
     if outcome.error is not None:
         raise CodexcwError(outcome.error)
     return outcome.result
+
+
+def _account_usage_or_raise(outcome: "_codexcw.PyAccountUsageOutcome") -> AccountUsage:
+    result = _result_or_raise(outcome)
+    if result is None:
+        raise CodexcwError(
+            SimpleNamespace(
+                kind="process",
+                message="account usage result missing",
+                code=None,
+                stderr=None,
+                line=None,
+            )
+        )
+    return result
 
 
 @dataclass
@@ -71,6 +107,25 @@ class ConfigOverride:
 
     key: str = ""
     value: str = ""
+
+
+@dataclass
+class AccountUsageRequest:
+    """Options for reading Codex account usage.
+
+    ``timeout`` is the per-request JSON-RPC timeout in seconds; Codex defaults
+    to 10 seconds when unset.
+    """
+
+    executable: Optional[str] = None
+    env: Optional[dict] = None
+    timeout: Optional[float] = None
+
+
+def get_account_usage(req: Optional[AccountUsageRequest] = None) -> AccountUsage:
+    """Reads Codex account usage and limits through ``codex app-server``."""
+
+    return _account_usage_or_raise(_codexcw.get_account_usage(req))
 
 
 @dataclass
