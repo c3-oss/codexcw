@@ -2,6 +2,7 @@ package codexcw
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,8 +33,11 @@ while IFS= read -r line; do
     *'"method":"account/usage/read"'*)
       printf '%s\n' '{"id":3,"result":{"summary":{"lifetimeTokens":"12345678901234567890","peakDailyTokens":456,"longestRunningTurnSec":"789","currentStreakDays":3,"longestStreakDays":"9"},"dailyUsageBuckets":[{"startDate":"2026-07-07","tokens":"42"}]}}'
       ;;
-    *'"method":"account/read"'*)
+    *'"method":"account/read"'*'"params"'*|*'"params"'*'"method":"account/read"'*)
       printf '%s\n' '{"id":4,"result":{"account":{"type":"chatgpt","email":"stub@example.com","planType":"pro"},"requiresOpenaiAuth":false}}'
+      ;;
+    *'"method":"account/read"'*)
+      printf '%s\n' '{"id":4,"error":{"code":-32600,"message":"Invalid request: missing field params"}}'
       ;;
   esac
 done
@@ -123,6 +127,79 @@ done
 	_, err := GetAccountUsage(context.Background(), AccountUsageRequest{Executable: fake})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "login required")
+}
+
+func TestGetAccountUsageToleratesOptionalRPCErrors(t *testing.T) {
+	fake := writeFakeCodex(t, `
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*) printf '%s\n' '{"id":2,"result":{"rateLimits":{"planType":"pro"}}}' ;;
+    *'"method":"account/usage/read"'*) printf '%s\n' '{"id":3,"error":{"code":-32601,"message":"method not found"}}' ;;
+    *'"method":"account/read"'*) printf '%s\n' '{"id":4,"error":{"code":-32600,"message":"Invalid request"}}' ;;
+  esac
+done
+`)
+
+	usage, err := GetAccountUsage(context.Background(), AccountUsageRequest{Executable: fake})
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	assert.Equal(t, "pro", usage.RateLimits.PlanType)
+	assert.Nil(t, usage.TokenUsage)
+	assert.Nil(t, usage.Account)
+}
+
+func TestGetAccountUsageFailsOnOptionalReadTransportError(t *testing.T) {
+	fake := writeFakeCodex(t, `
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*)
+      printf '%s\n' '{"id":2,"result":{"rateLimits":{"planType":"pro"}}}'
+      exit 0
+      ;;
+  esac
+done
+`)
+
+	_, err := GetAccountUsage(context.Background(), AccountUsageRequest{Executable: fake})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "account token usage")
+}
+
+func TestGetAccountUsageCustomTimeout(t *testing.T) {
+	fake := writeFakeCodex(t, `
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*)
+      sleep 5
+      printf '%s\n' '{"id":2,"result":{"rateLimits":{}}}'
+      ;;
+  esac
+done
+`)
+
+	start := time.Now()
+	_, err := GetAccountUsage(context.Background(), AccountUsageRequest{
+		Executable: fake,
+		Timeout:    100 * time.Millisecond,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(start), 4*time.Second)
+}
+
+func TestAccountRateLimitWindowDecodesStringNumbers(t *testing.T) {
+	var window AccountRateLimitWindow
+	payload := `{"usedPercent":"12.5","windowDurationMins":"300","resetsAt":"1766948068"}`
+	require.NoError(t, json.Unmarshal([]byte(payload), &window))
+	assert.Equal(t, 12.5, window.UsedPercent)
+	assert.Equal(t, 300, window.WindowDurationMinutes)
+	assert.Equal(t, int64(1766948068), window.ResetsAt)
 }
 
 func TestLiveGetAccountUsageAndFastMode(t *testing.T) {

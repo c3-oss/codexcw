@@ -11,14 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
 
 const (
 	accountUsageInitTimeout    = 8 * time.Second
-	accountUsageRequestTimeout = 3 * time.Second
+	accountUsageRequestTimeout = 10 * time.Second
 )
 
 // AccountUsageRequest configures one Codex account usage lookup.
@@ -28,6 +27,9 @@ type AccountUsageRequest struct {
 
 	// Env appends environment variables for the Codex app-server child process.
 	Env map[string]string
+
+	// Timeout bounds each account read request. Values <= 0 use the 10s default.
+	Timeout time.Duration
 }
 
 // AccountUsage is the account limits and credits reported by Codex app-server.
@@ -175,11 +177,18 @@ type AccountTokenUsageDailyBucket struct {
 func GetAccountUsage(ctx context.Context, req AccountUsageRequest) (*AccountUsage, error) {
 	executable := strings.TrimSpace(req.Executable)
 	if executable == "" {
-		executable = "codex"
+		executable = defaultExecutable
+	}
+	requestTimeout := req.Timeout
+	if requestTimeout <= 0 {
+		requestTimeout = accountUsageRequestTimeout
 	}
 
+	// #nosec G204 -- launching the configured Codex executable is the wrapper boundary.
 	cmd := exec.CommandContext(ctx, executable, "-s", "read-only", "-a", "untrusted", "app-server", "--stdio")
 	cmd.Env = accountUsageEnv(req.Env)
+	// Bound teardown when killed child processes keep the pipes open.
+	cmd.WaitDelay = time.Second
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -189,8 +198,8 @@ func GetAccountUsage(ctx context.Context, req AccountUsageRequest) (*AccountUsag
 	if err != nil {
 		return nil, fmt.Errorf("codex app-server stdout: %w", err)
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr := newTailBuffer(defaultStderrLimit)
+	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start codex app-server: %w", err)
@@ -200,13 +209,7 @@ func GetAccountUsage(ctx context.Context, req AccountUsageRequest) (*AccountUsag
 		_ = cmd.Wait()
 	}()
 
-	client := accountUsageRPCClient{
-		stdin:  stdin,
-		reader: bufio.NewReader(stdout),
-		kill: func() {
-			_ = cmd.Process.Kill()
-		},
-	}
+	client := newAccountUsageRPCClient(stdin, stdout)
 
 	if _, err := client.request(ctx, "initialize", map[string]any{
 		"clientInfo": map[string]string{
@@ -220,7 +223,7 @@ func GetAccountUsage(ctx context.Context, req AccountUsageRequest) (*AccountUsag
 		return nil, fmt.Errorf("notify codex app-server initialized: %w", err)
 	}
 
-	rawRateLimits, err := client.request(ctx, "account/rateLimits/read", nil, accountUsageRequestTimeout)
+	rawRateLimits, err := client.request(ctx, "account/rateLimits/read", nil, requestTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("read codex account rate limits: %w%s", err, stderrSuffix(stderr.String()))
 	}
@@ -238,33 +241,90 @@ func GetAccountUsage(ctx context.Context, req AccountUsageRequest) (*AccountUsag
 		usage.RateLimitsByLimitID = map[string]AccountRateLimits{}
 	}
 
-	if rawTokenUsage, err := client.request(ctx, "account/usage/read", nil, accountUsageRequestTimeout); err == nil {
+	// account/usage/read and account/read are optional: a JSON-RPC error
+	// response means the data is absent, while transport failures abort.
+	rawTokenUsage, err := client.request(ctx, "account/usage/read", nil, requestTimeout)
+	switch {
+	case err == nil:
 		var tokenUsage AccountTokenUsage
-		if json.Unmarshal(rawTokenUsage, &tokenUsage) == nil {
-			usage.TokenUsage = &tokenUsage
-			usage.RawTokenUsage = append(json.RawMessage(nil), rawTokenUsage...)
+		if err := json.Unmarshal(rawTokenUsage, &tokenUsage); err != nil {
+			return nil, fmt.Errorf("decode codex account token usage: %w", err)
 		}
+		usage.TokenUsage = &tokenUsage
+		usage.RawTokenUsage = append(json.RawMessage(nil), rawTokenUsage...)
+	case !isAccountUsageRPCError(err):
+		return nil, fmt.Errorf("read codex account token usage: %w%s", err, stderrSuffix(stderr.String()))
 	}
 
-	if rawAccount, err := client.request(ctx, "account/read", nil, accountUsageRequestTimeout); err == nil {
+	rawAccount, err := client.request(ctx, "account/read", map[string]any{}, requestTimeout)
+	switch {
+	case err == nil:
 		var account accountResponse
-		if json.Unmarshal(rawAccount, &account) == nil {
-			usage.Account = account.Account
-			if usage.Account != nil {
-				usage.Account.RequiresOpenAIAuth = account.RequiresOpenAIAuth
-			}
-			usage.RawAccount = append(json.RawMessage(nil), rawAccount...)
+		if err := json.Unmarshal(rawAccount, &account); err != nil {
+			return nil, fmt.Errorf("decode codex account: %w", err)
 		}
+		usage.Account = account.Account
+		if usage.Account != nil {
+			usage.Account.RequiresOpenAIAuth = account.RequiresOpenAIAuth
+		}
+		usage.RawAccount = append(json.RawMessage(nil), rawAccount...)
+	case !isAccountUsageRPCError(err):
+		return nil, fmt.Errorf("read codex account: %w%s", err, stderrSuffix(stderr.String()))
 	}
 
 	return usage, nil
 }
 
+// accountUsageRPCError is a JSON-RPC error response from codex app-server.
+type accountUsageRPCError struct {
+	Code    int
+	Message string
+}
+
+func (e *accountUsageRPCError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("codex app-server JSON-RPC error %d", e.Code)
+}
+
+func isAccountUsageRPCError(err error) bool {
+	var rpcErr *accountUsageRPCError
+	return errors.As(err, &rpcErr)
+}
+
 type accountUsageRPCClient struct {
 	nextID int
 	stdin  io.Writer
-	reader *bufio.Reader
-	kill   func()
+	lines  <-chan accountUsageLine
+}
+
+type accountUsageLine struct {
+	line []byte
+	err  error
+}
+
+func newAccountUsageRPCClient(stdin io.Writer, stdout io.Reader) *accountUsageRPCClient {
+	// Buffered so trailing server chatter rarely blocks the reader goroutine
+	// once the caller stops receiving.
+	lines := make(chan accountUsageLine, 16)
+	go func() {
+		defer close(lines)
+		reader := bufio.NewReader(stdout)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					lines <- accountUsageLine{err: err}
+				} else if len(bytes.TrimSpace(line)) > 0 {
+					lines <- accountUsageLine{line: line}
+				}
+				return
+			}
+			lines <- accountUsageLine{line: line}
+		}
+	}()
+	return &accountUsageRPCClient{stdin: stdin, lines: lines}
 }
 
 func (c *accountUsageRPCClient) request(ctx context.Context, method string, params any, timeout time.Duration) (json.RawMessage, error) {
@@ -284,26 +344,35 @@ func (c *accountUsageRPCClient) request(ctx context.Context, method string, para
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
-		message, err := c.readMessage(requestCtx)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) && c.kill != nil {
-				c.kill()
+		select {
+		case <-requestCtx.Done():
+			return nil, requestCtx.Err()
+		case next, ok := <-c.lines:
+			if !ok {
+				return nil, errors.New("codex app-server closed stdout")
 			}
-			return nil, err
-		}
-		if message.ID == nil || *message.ID != id {
-			continue
-		}
-		if message.Error != nil {
-			if message.Error.Message != "" {
-				return nil, errors.New(message.Error.Message)
+			if next.err != nil {
+				return nil, next.err
 			}
-			return nil, errors.New("codex app-server JSON-RPC error")
+			var message accountUsageRPCMessage
+			if err := json.Unmarshal(bytes.TrimSpace(next.line), &message); err != nil {
+				return nil, err
+			}
+			// Skip notifications and server-initiated requests.
+			if message.Method != "" {
+				continue
+			}
+			if message.ID == nil || *message.ID != id {
+				continue
+			}
+			if message.Error != nil {
+				return nil, &accountUsageRPCError{Code: message.Error.Code, Message: message.Error.Message}
+			}
+			if len(message.Result) == 0 {
+				return nil, errors.New("codex app-server JSON-RPC response missing result")
+			}
+			return message.Result, nil
 		}
-		if len(message.Result) == 0 {
-			return nil, errors.New("codex app-server JSON-RPC response missing result")
-		}
-		return message.Result, nil
 	}
 }
 
@@ -318,36 +387,12 @@ func (c *accountUsageRPCClient) notify(method string, params any) error {
 	return writeJSONLine(c.stdin, payload)
 }
 
-func (c *accountUsageRPCClient) readMessage(ctx context.Context) (accountUsageRPCMessage, error) {
-	type lineResult struct {
-		line []byte
-		err  error
-	}
-	ch := make(chan lineResult, 1)
-	go func() {
-		line, err := c.reader.ReadBytes('\n')
-		ch <- lineResult{line: line, err: err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return accountUsageRPCMessage{}, ctx.Err()
-	case result := <-ch:
-		if result.err != nil {
-			return accountUsageRPCMessage{}, result.err
-		}
-		var message accountUsageRPCMessage
-		if err := json.Unmarshal(bytes.TrimSpace(result.line), &message); err != nil {
-			return accountUsageRPCMessage{}, err
-		}
-		return message, nil
-	}
-}
-
 type accountUsageRPCMessage struct {
 	ID     *int            `json:"id"`
+	Method string          `json:"method"`
 	Result json.RawMessage `json:"result"`
 	Error  *struct {
+		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
@@ -363,32 +408,20 @@ func writeJSONLine(w io.Writer, payload any) error {
 }
 
 func accountUsageEnv(overrides map[string]string) []string {
-	env := map[string]string{}
-	for _, entry := range os.Environ() {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok {
-			env[key] = value
-		}
-	}
+	env := os.Environ()
 	for key, value := range overrides {
-		env[key] = value
+		env = append(env, key+"="+value)
 	}
-	if strings.TrimSpace(env["CODEX_HOME"]) == "" {
+	codexHome, overridden := overrides["CODEX_HOME"]
+	if !overridden {
+		codexHome = os.Getenv("CODEX_HOME")
+	}
+	if strings.TrimSpace(codexHome) == "" {
 		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			env["CODEX_HOME"] = filepath.Join(home, ".codex")
+			env = append(env, "CODEX_HOME="+filepath.Join(home, ".codex"))
 		}
 	}
-
-	keys := make([]string, 0, len(env))
-	for key := range env {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	out := make([]string, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, key+"="+env[key])
-	}
-	return out
+	return env
 }
 
 func stderrSuffix(stderr string) string {
@@ -462,19 +495,19 @@ func (r *AccountRateLimits) UnmarshalJSON(data []byte) error {
 // UnmarshalJSON accepts Codex window fields in camelCase or snake_case.
 func (w *AccountRateLimitWindow) UnmarshalJSON(data []byte) error {
 	var wire struct {
-		UsedPercent                float64 `json:"usedPercent"`
-		UsedPercentSnake           float64 `json:"used_percent"`
-		WindowDurationMinutes      int     `json:"windowDurationMins"`
-		WindowDurationMinutesSnake int     `json:"window_duration_mins"`
-		ResetsAt                   int64   `json:"resetsAt"`
-		ResetsAtSnake              int64   `json:"resets_at"`
+		UsedPercent                flexibleFloat `json:"usedPercent"`
+		UsedPercentSnake           flexibleFloat `json:"used_percent"`
+		WindowDurationMinutes      flexibleInt64 `json:"windowDurationMins"`
+		WindowDurationMinutesSnake flexibleInt64 `json:"window_duration_mins"`
+		ResetsAt                   flexibleInt64 `json:"resetsAt"`
+		ResetsAtSnake              flexibleInt64 `json:"resets_at"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
-	w.UsedPercent = firstNonZeroFloat(wire.UsedPercent, wire.UsedPercentSnake)
-	w.WindowDurationMinutes = firstNonZeroInt(wire.WindowDurationMinutes, wire.WindowDurationMinutesSnake)
-	w.ResetsAt = firstNonZeroInt64(wire.ResetsAt, wire.ResetsAtSnake)
+	w.UsedPercent = firstNonZeroFloat(float64(wire.UsedPercent), float64(wire.UsedPercentSnake))
+	w.WindowDurationMinutes = int(firstNonZeroInt64(int64(wire.WindowDurationMinutes), int64(wire.WindowDurationMinutesSnake)))
+	w.ResetsAt = firstNonZeroInt64(int64(wire.ResetsAt), int64(wire.ResetsAtSnake))
 	return nil
 }
 
@@ -491,8 +524,8 @@ func (l *AccountSpendLimit) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
-	l.Limit = firstNonZeroFloat(float64(wire.Limit), 0)
-	l.Used = firstNonZeroFloat(float64(wire.Used), 0)
+	l.Limit = float64(wire.Limit)
+	l.Used = float64(wire.Used)
 	l.RemainingPercent = firstNonZeroFloat(float64(wire.RemainingPercent), float64(wire.RemainingPercentSnake))
 	l.ResetsAt = firstNonZeroInt64(int64(wire.ResetsAt), int64(wire.ResetsAtSnake))
 	return nil
@@ -687,15 +720,6 @@ func firstNonEmpty(values ...string) string {
 }
 
 func firstNonZeroFloat(values ...float64) float64 {
-	for _, value := range values {
-		if value != 0 {
-			return value
-		}
-	}
-	return 0
-}
-
-func firstNonZeroInt(values ...int) int {
 	for _, value := range values {
 		if value != 0 {
 			return value
