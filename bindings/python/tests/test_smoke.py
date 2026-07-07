@@ -162,6 +162,7 @@ def test_get_account_usage_reads_limits(tmp_path):
                 "CODEXCW_ENV_FILE": str(env_file),
                 "CODEX_HOME": str(codex_home),
             },
+            timeout=5.0,
         )
     )
 
@@ -185,6 +186,32 @@ def test_get_account_usage_reads_limits(tmp_path):
         "--stdio",
     ]
     assert env_file.read_text() == f"{codex_home}\n"
+
+
+def test_get_account_usage_timeout_raises(tmp_path):
+    fake = tmp_path / "codex-usage-slow"
+    fake.write_text(
+        """#!/bin/sh
+set -eu
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialized"'*) ;;
+    *'"method":"initialize"'*) printf '%s\\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*)
+      printf '%s\\n' '{"id":2,"result":{"rateLimits":{"planType":"pro"}}}'
+      ;;
+    *'"method":"account/usage/read"'*) sleep 5 ;;
+  esac
+done
+"""
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+
+    with pytest.raises(CodexcwError) as excinfo:
+        get_account_usage(AccountUsageRequest(executable=str(fake), timeout=0.2))
+
+    assert excinfo.value.kind == "process"
+    assert "timeout" in str(excinfo.value)
 
 
 async def test_async_run_and_stream(tmp_path):

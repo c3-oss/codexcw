@@ -11,6 +11,7 @@ The synchronous API lives here; :mod:`codexcw.aio` mirrors it with ``async``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Callable, Iterator, List, Optional
 
 from . import _codexcw
@@ -79,18 +80,25 @@ class CodexcwError(Exception):
         self.line: Optional[int] = info.line
 
 
-def _result_or_raise(outcome: "_codexcw.PyOutcome") -> RunResult:
+def _result_or_raise(outcome):
     if outcome.error is not None:
         raise CodexcwError(outcome.error)
     return outcome.result
 
 
 def _account_usage_or_raise(outcome: "_codexcw.PyAccountUsageOutcome") -> AccountUsage:
-    if outcome.error is not None:
-        raise CodexcwError(outcome.error)
-    if outcome.result is None:
-        raise RuntimeError("account usage result missing")
-    return outcome.result
+    result = _result_or_raise(outcome)
+    if result is None:
+        raise CodexcwError(
+            SimpleNamespace(
+                kind="process",
+                message="account usage result missing",
+                code=None,
+                stderr=None,
+                line=None,
+            )
+        )
+    return result
 
 
 @dataclass
@@ -103,10 +111,15 @@ class ConfigOverride:
 
 @dataclass
 class AccountUsageRequest:
-    """Options for reading Codex account usage."""
+    """Options for reading Codex account usage.
+
+    ``timeout`` is the per-request JSON-RPC timeout in seconds; Codex defaults
+    to 10 seconds when unset.
+    """
 
     executable: Optional[str] = None
     env: Optional[dict] = None
+    timeout: Optional[float] = None
 
 
 def get_account_usage(req: Optional[AccountUsageRequest] = None) -> AccountUsage:

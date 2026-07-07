@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
@@ -416,6 +416,7 @@ impl ReqData {
 struct AccountUsageReqData {
     executable: Option<String>,
     env: Option<HashMap<String, String>>,
+    timeout: Option<f64>,
 }
 
 impl AccountUsageReqData {
@@ -423,6 +424,7 @@ impl AccountUsageReqData {
         CoreAccountUsageRequest {
             executable: self.executable,
             env: self.env.unwrap_or_default().into_iter().collect(),
+            timeout: self.timeout.map(Duration::from_secs_f64),
         }
     }
 }
