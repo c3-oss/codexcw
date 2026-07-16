@@ -1,17 +1,18 @@
 //! Run agent CLIs non-interactively.
 //!
-//! `codexcw` wraps `codex exec --json`: it spawns Codex processes, decodes the
-//! JSONL event stream, and exposes each run as async streams, callbacks,
-//! results, and typed errors. Defaults are automation-friendly: JSONL
+//! `codexcw` runs Codex or Claude Code non-interactively: it spawns the
+//! selected agent CLI, decodes the JSONL event stream, and exposes each run as
+//! async streams, callbacks, results, and typed errors. The Codex agent (the
+//! default) wraps `codex exec --json` with automation-friendly defaults: JSONL
 //! streaming, ephemeral sessions, read-only sandbox, approval policy `never`,
-//! color disabled, and the Git repository check skipped.
+//! color disabled, and the Git repository check skipped. Selecting
+//! [`Agent::Claude`] on the builder wraps Claude Code
+//! (`claude -p --output-format stream-json`), normalizing its events into the
+//! same [`Event`] model with the original Claude JSON kept in `raw`.
 //!
-//! Selecting [`Agent::Claude`] on the builder wraps Claude Code
-//! (`claude -p --output-format stream-json`) instead, normalizing its events
-//! into the same [`Event`] model with the original Claude JSON kept in `raw`.
-//!
-//! The wrapped executable must be available on `PATH` and authenticated; for
-//! Codex it must be new enough to support `codex exec --json`.
+//! The selected agent's executable must be available on `PATH` and
+//! authenticated: `codex` new enough to support `codex exec --json`, `claude`
+//! new enough to support `--output-format stream-json`.
 //!
 //! # Example
 //!

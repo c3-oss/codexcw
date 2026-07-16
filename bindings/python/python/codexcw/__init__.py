@@ -1,13 +1,13 @@
 """Run agent CLIs non-interactively from Python, backed by a Rust core.
 
-``codexcw`` wraps ``codex exec --json``: it spawns Codex processes, decodes the
-JSONL event stream, and exposes each run as iterables, callbacks, results, and
-typed errors. Defaults are automation-friendly (read-only sandbox, approval
-``never``, ephemeral sessions, color disabled, git check skipped).
-
-``Runner(agent=AGENT_CLAUDE)`` wraps Claude Code
-(``claude -p --output-format stream-json``) instead, normalizing its events
-into the same event model.
+``codexcw`` runs Codex or Claude Code non-interactively: it spawns the
+selected agent CLI, decodes the JSONL event stream, and exposes each run as
+iterables, callbacks, results, and typed errors. The Codex agent (the default)
+wraps ``codex exec --json`` with automation-friendly defaults (read-only
+sandbox, approval ``never``, ephemeral sessions, color disabled, git check
+skipped); ``Runner(agent=AGENT_CLAUDE)`` wraps Claude Code
+(``claude -p --output-format stream-json``), normalizing its events into the
+same event model.
 
 The synchronous API lives here; :mod:`codexcw.aio` mirrors it with ``async``.
 """

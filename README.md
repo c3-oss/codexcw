@@ -20,15 +20,20 @@ contract — there is no FFI between them; each is native to its ecosystem:
 The Go library lives at the repo root; the Rust core is in `crates/codexcw`, and
 the npm + PyPI bindings (backed by that Rust core) are in `bindings/`.
 
-The `codex` executable must be on `PATH`, authenticated, and new enough to
-support `codex exec --json`. Defaults are automation-friendly: JSONL streaming,
-ephemeral sessions, read-only sandbox, approval policy `never`, color disabled,
-and the Git repository check skipped.
+Two agents share the same event model:
 
-Runners can alternatively wrap **Claude Code**: selecting the `claude` agent
-spawns `claude -p --output-format stream-json` and normalizes its events into
-the same event model, with model selection between the `haiku`, `sonnet`, and
-`opus` aliases. See the per-language examples in
+- **Codex** (the default) spawns `codex exec --json`. Defaults are
+  automation-friendly: JSONL streaming, ephemeral sessions, read-only sandbox,
+  approval policy `never`, color disabled, and the Git repository check
+  skipped.
+- **Claude Code** — the `claude` agent — spawns
+  `claude -p --output-format stream-json` and normalizes its events into the
+  same event model, with model selection between the `haiku`, `sonnet`, and
+  `opus` aliases and Claude permission modes on the request.
+
+The selected agent's executable must be on `PATH` and authenticated: `codex`
+new enough to support `codex exec --json`, `claude` new enough to support
+`--output-format stream-json`. See the per-language examples in
 [`docs/examples/`](docs/examples/).
 
 Account usage is available through agent-specific helpers. The Codex helpers

@@ -9,9 +9,12 @@ cargo add tokio --features macros,rt-multi-thread
 cargo add tokio-stream
 ```
 
-The `codex` executable must be on `PATH`, authenticated, and new enough to
-support `codex exec --json`. Defaults are automation-friendly: read-only sandbox,
-approval `never`, ephemeral sessions, color off, git-check skipped.
+Runners drive Codex (the default agent) or Claude Code; the selected agent's
+executable must be on `PATH` and authenticated — `codex` new enough to support
+`codex exec --json`, `claude` new enough to support
+`--output-format stream-json` (see the Claude agent section below). Codex
+defaults are automation-friendly: read-only sandbox, approval `never`,
+ephemeral sessions, color off, git-check skipped.
 
 ## Async vs blocking
 

@@ -16,10 +16,9 @@ npm install @c3-oss/codexcw
 The selected agent executable must be on `PATH` and authenticated. Codex must
 support `codex exec --json`; Claude must support `--output-format stream-json`.
 
-Runners can alternatively wrap Claude Code: `new Runner({ agent: 'claude' })`
-spawns `claude -p --output-format stream-json` and normalizes its events into
-the same event model, with model selection via the `haiku`/`sonnet`/`opus`
-aliases (`ClaudeModel`).
+The Claude agent is selected with `new Runner({ agent: 'claude' })`; its
+events are normalized into the same event model, with model selection via the
+`haiku`/`sonnet`/`opus` aliases (`ClaudeModel`).
 
 ## Usage
 

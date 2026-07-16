@@ -40,8 +40,9 @@ on each PR. (Dependabot `(deps)` bumps are exempt from the subject-case rule.)
 
 - **Go** — `gofumpt` + `goimports` via golangci-lint; `testify` for assertions.
 - **Rust** — `rustfmt` + `clippy -D warnings`; full doc coverage on the core crate.
-- Process behavior is tested against a fake `codex`; the same JSONL fixture drives
-  the Go, Rust, Node, and Python smoke tests. Keep the four in lockstep.
+- Process behavior is tested against fake `codex` and `claude` executables; the
+  same JSONL fixtures drive the Go, Rust, Node, and Python smoke tests. Keep the
+  four in lockstep.
 - Comments explain *why*, not *what*.
 
 ## Releasing

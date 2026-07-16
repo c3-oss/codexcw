@@ -54,11 +54,11 @@ quality tools). Enter with `devbox shell` and run via `just`. Recipes are
   coverage on exported identifiers.
 - **Rust**: `rustfmt` + `clippy -D warnings`; the core crate sets
   `#![warn(missing_docs)]`.
-- Library code preserves the raw Codex JSON (`Raw`/`raw`) when adding typed helpers.
-- Process behavior is tested against a **fake `codex` executable**; the same JSONL
-  fixture drives the Go, Rust, Node, and Python smoke tests so all four decode
-  identically. This shared spec/fixtures is the reason the implementations live
-  together — keep them in lockstep.
+- Library code preserves the raw agent JSON (`Raw`/`raw`) when adding typed helpers.
+- Process behavior is tested against **fake `codex` and `claude` executables**;
+  the same JSONL fixtures drive the Go, Rust, Node, and Python smoke tests so
+  all four decode identically. This shared spec/fixtures is the reason the
+  implementations live together — keep them in lockstep.
 - Comments explain *why*, not *what*.
 
 ## Commits and PRs

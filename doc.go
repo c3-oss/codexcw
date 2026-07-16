@@ -6,6 +6,7 @@
 // for callers that need fields not yet modeled by typed helpers. Claude
 // events are normalized into the same Event model.
 //
-// Account usage helpers read token usage, limits, and credits through codex
-// app-server.
+// Account usage helpers are agent-specific: GetAccountUsage reads token
+// usage, limits, and credits through codex app-server, and
+// GetClaudeAccountUsage reads Claude Code's /usage report.
 package codexcw

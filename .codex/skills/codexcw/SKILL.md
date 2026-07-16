@@ -1,14 +1,16 @@
 ---
 name: codexcw
-description: Run Codex non-interactively from Go, Rust, Node.js, or Python using the codexcw library (a wrapper around `codex exec --json`). Use when building automation that spawns Codex, streams its JSONL events, resumes threads, or controls sandbox/approval policy.
+description: Run Codex or Claude Code non-interactively from Go, Rust, Node.js, or Python using the codexcw library (a wrapper around `codex exec --json` and `claude -p --output-format stream-json`). Use when building automation that spawns either agent, streams its JSONL events, resumes threads, or controls sandbox/approval/permission policy.
 ---
 
 # codexcw
 
-`codexcw` wraps `codex exec --json`: it spawns Codex, decodes the JSONL event
-stream, and exposes each run as streams, callbacks, results, and typed errors.
-A selectable `claude` agent wraps `claude -p --output-format stream-json`
-instead, normalizing Claude Code's events into the same event model.
+`codexcw` runs Codex or Claude Code non-interactively: it spawns the selected
+agent CLI, decodes the JSONL event stream, and exposes each run as streams,
+callbacks, results, and typed errors. The `codex` agent (the default) wraps
+`codex exec --json`; the `claude` agent wraps
+`claude -p --output-format stream-json`, normalizing Claude Code's events into
+the same event model.
 It ships as four independent, idiomatic implementations of the same contract —
 pick the one matching your host language.
 
@@ -36,8 +38,9 @@ pick the one matching your host language.
 ## Safe defaults
 
 Every runner defaults to: read-only sandbox, approval `never`, ephemeral
-sessions, JSONL streaming, color disabled, git-repo check skipped. The `codex`
-executable must be on `PATH`, authenticated, and support `codex exec --json`.
+sessions, JSONL streaming, color disabled, git-repo check skipped. The selected
+agent's executable must be on `PATH` and authenticated: `codex` must support
+`codex exec --json`, `claude` must support `--output-format stream-json`.
 
 ## Common tasks
 

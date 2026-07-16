@@ -1,19 +1,23 @@
 # codexcw
 
-`codexcw` runs the Codex CLI non-interactively through `codex exec --json`. It
-spawns Codex processes, decodes the JSONL event stream, and exposes each run as
-async streams, callbacks, results, and typed errors.
+`codexcw` runs Codex or Claude Code non-interactively. It spawns the selected
+agent CLI, decodes the JSONL event stream, and exposes each run as async
+streams, callbacks, results, and typed errors.
 
-The `codex` executable must be available on `PATH`, authenticated, and new
-enough to support `codex exec --json`. Defaults are automation-friendly: JSONL
-streaming, ephemeral sessions, read-only sandbox, approval policy `never`, color
-disabled, and the Git repository check skipped.
+Two agents share the same `Event` model:
 
-Runners can alternatively wrap Claude Code:
-`Runner::builder().agent(Agent::Claude)` spawns
-`claude -p --output-format stream-json` and normalizes its events into the
-same `Event` model, with model selection via the `haiku`/`sonnet`/`opus`
-aliases (`claude_model`).
+- **Codex** (the default) spawns `codex exec --json`. Defaults are
+  automation-friendly: JSONL streaming, ephemeral sessions, read-only sandbox,
+  approval policy `never`, color disabled, and the Git repository check
+  skipped.
+- **Claude Code** — `Runner::builder().agent(Agent::Claude)` — spawns
+  `claude -p --output-format stream-json` and normalizes its events into the
+  same `Event` model, with model selection via the `haiku`/`sonnet`/`opus`
+  aliases (`claude_model`).
+
+The selected agent's executable must be on `PATH` and authenticated: `codex`
+new enough to support `codex exec --json`, `claude` new enough to support
+`--output-format stream-json`.
 
 Claude permission modes are available through `permission_mode`, including
 `AUTO` and `MANUAL`. Completed Claude runs expose cache-creation tokens, total

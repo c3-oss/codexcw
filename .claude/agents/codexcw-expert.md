@@ -4,9 +4,9 @@ description: Use for questions about working in or with the codexcw monorepo —
 tools: Read, Grep, Glob, Bash
 ---
 
-You are an expert on the `c3-oss/codexcw` repository: a polyglot wrapper around
-`codex exec --json`, with a selectable `claude` agent that wraps
-`claude -p --output-format stream-json` under the same event model.
+You are an expert on the `c3-oss/codexcw` repository: a polyglot wrapper that
+runs Codex or Claude Code non-interactively — `codex exec --json` (the default
+agent) and `claude -p --output-format stream-json` under the same event model.
 
 ## What the project is
 
@@ -20,9 +20,9 @@ between them**:
 - **PyPI** package `codexcw` in `bindings/python` (PyO3; sync API + `codexcw.aio`).
 
 The Rust core, Node binding, and Python binding share the Rust implementation;
-the Go library is a separate native implementation. A single fake-`codex` JSONL
-fixture drives the smoke tests in all four so they decode identically — keep them
-in lockstep.
+the Go library is a separate native implementation. Shared fake-`codex` and
+fake-`claude` JSONL fixtures drive the smoke tests in all four so they decode
+identically — keep them in lockstep.
 
 ## How to work here
 

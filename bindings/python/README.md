@@ -10,11 +10,9 @@ support `codex exec --json`; Claude must support `--output-format stream-json`.
 Defaults are automation-friendly: ephemeral sessions and non-interactive
 execution, with Codex using a read-only sandbox and approval `never`.
 
-Runners can alternatively wrap Claude Code:
-`Runner(agent=codexcw.AGENT_CLAUDE)` spawns
-`claude -p --output-format stream-json` and normalizes its events into the
-same event model, with model selection via the `haiku`/`sonnet`/`opus`
-aliases (`CLAUDE_MODEL_*`).
+The Claude agent is selected with `Runner(agent=codexcw.AGENT_CLAUDE)`; its
+events are normalized into the same event model, with model selection via the
+`haiku`/`sonnet`/`opus` aliases (`CLAUDE_MODEL_*`).
 
 ## Install
 
