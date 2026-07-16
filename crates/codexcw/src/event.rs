@@ -80,6 +80,9 @@ pub enum ItemKind {
     WebSearch,
     /// `plan_update` — a Codex plan update.
     PlanUpdate,
+    /// `collab_tool_call` — a multi-agent collab tool call
+    /// (spawn/wait/send between agent threads).
+    CollabToolCall,
     /// `error` — an item-scoped Codex error.
     Error,
     /// An item type not yet modelled by this crate.
@@ -97,6 +100,7 @@ impl ItemKind {
             ItemKind::McpToolCall => "mcp_tool_call",
             ItemKind::WebSearch => "web_search",
             ItemKind::PlanUpdate => "plan_update",
+            ItemKind::CollabToolCall => "collab_tool_call",
             ItemKind::Error => "error",
             ItemKind::Other(value) => value,
         }
@@ -111,6 +115,7 @@ impl ItemKind {
             "mcp_tool_call" => ItemKind::McpToolCall,
             "web_search" => ItemKind::WebSearch,
             "plan_update" => ItemKind::PlanUpdate,
+            "collab_tool_call" => ItemKind::CollabToolCall,
             "error" => ItemKind::Error,
             other => ItemKind::Other(other.to_string()),
         }

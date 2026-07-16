@@ -203,6 +203,21 @@ mod tests {
     }
 
     #[test]
+    fn decodes_collab_tool_call_kind() {
+        let event = decode_event(
+            br#"{"type":"item.started","item":{"id":"i0","type":"collab_tool_call","tool":"wait","sender_thread_id":"t-parent","receiver_thread_ids":[],"agents_states":{},"status":"in_progress"}}"#,
+            "run-x",
+            "t-parent",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let item = event.item_started().unwrap();
+        assert_eq!(item.kind, ItemKind::CollabToolCall);
+        assert_eq!(item.status, "in_progress");
+        assert!(item.raw.contains("\"tool\":\"wait\""));
+    }
+
+    #[test]
     fn missing_type_is_an_error() {
         let err = decode_event(b"{}", "run", "", SystemTime::UNIX_EPOCH).unwrap_err();
         assert_eq!(err, "missing event type");
