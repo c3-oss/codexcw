@@ -144,6 +144,39 @@ dotnet-fmt-check:
 dotnet-pack:
     dotnet pack dotnet/Codexcw/Codexcw.csproj -c Release -o dist/nuget
 
+# pack, check the nuspec version, and build a consumer against the package
+dotnet-verify-pack: dotnet-pack
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' dotnet/Directory.Build.props)"
+    package="$(pwd)/dist/nuget/C3OSS.Codexcw.${version}.nupkg"
+    [ -f "$package" ] || { echo "missing ${package}" >&2; exit 1; }
+    unzip -p "$package" C3OSS.Codexcw.nuspec | grep -q "<version>${version}</version>" \
+      || { echo "nuspec version does not match ${version}" >&2; exit 1; }
+    consumer="$(mktemp -d)"
+    trap 'rm -rf "$consumer"' EXIT
+    cat > "$consumer/Consumer.csproj" <<EOF
+    <Project Sdk="Microsoft.NET.Sdk">
+      <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RestoreAdditionalProjectSources>$(pwd)/dist/nuget</RestoreAdditionalProjectSources>
+      </PropertyGroup>
+      <ItemGroup>
+        <PackageReference Include="C3OSS.Codexcw" Version="${version}" />
+      </ItemGroup>
+    </Project>
+    EOF
+    cat > "$consumer/Program.cs" <<'EOF'
+    using C3OSS.Codexcw;
+
+    var runner = new Runner(new RunnerOptions { Agent = Agent.Codex, Executable = "codex" });
+    Console.WriteLine(runner.GetType().Assembly.FullName);
+    EOF
+    dotnet build "$consumer"
+
 dotnet-ci: dotnet-build dotnet-fmt-check dotnet-test
 
 # --------------------------------------------------------------------------------------------------
