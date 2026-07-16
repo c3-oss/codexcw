@@ -115,7 +115,7 @@ pub struct JsAccountUsageRequest {
     pub executable: Option<String>,
     pub env: Option<HashMap<String, String>>,
     /// Per-request JSON-RPC timeout in milliseconds. Defaults to 10 seconds.
-    pub timeout_ms: Option<u32>,
+    pub timeout_ms: Option<f64>,
 }
 
 /// Codex account limits and credits.
@@ -366,16 +366,33 @@ fn to_core_request(req: JsRequest) -> Result<Request, JsError> {
     })
 }
 
-fn to_core_account_usage_request(req: Option<JsAccountUsageRequest>) -> CoreAccountUsageRequest {
+fn invalid_account_usage_timeout() -> JsError {
+    invalid_request(
+        "account usage timeoutMs must be finite, non-negative, and within the supported duration range"
+            .to_string(),
+    )
+}
+
+fn parse_account_usage_timeout(timeout_ms: f64) -> Result<Duration, JsError> {
+    if !timeout_ms.is_finite() || timeout_ms < 0.0 {
+        return Err(invalid_account_usage_timeout());
+    }
+    Duration::try_from_secs_f64(timeout_ms / 1_000.0).map_err(|_| invalid_account_usage_timeout())
+}
+
+fn to_core_account_usage_request(
+    req: Option<JsAccountUsageRequest>,
+) -> Result<CoreAccountUsageRequest, JsError> {
     match req {
-        Some(req) => CoreAccountUsageRequest {
+        Some(req) => Ok(CoreAccountUsageRequest {
             executable: req.executable,
             env: req.env.unwrap_or_default().into_iter().collect(),
             timeout: req
                 .timeout_ms
-                .map(|ms| Duration::from_millis(u64::from(ms))),
-        },
-        None => CoreAccountUsageRequest::default(),
+                .map(parse_account_usage_timeout)
+                .transpose()?,
+        }),
+        None => Ok(CoreAccountUsageRequest::default()),
     }
 }
 
@@ -611,7 +628,16 @@ fn to_js_account_usage(usage: &CoreAccountUsage) -> JsAccountUsage {
 /// Reads Codex account usage and limits through `codex app-server`.
 #[napi]
 pub async fn get_account_usage_raw(req: Option<JsAccountUsageRequest>) -> JsAccountUsageOutcome {
-    match core_get_account_usage(to_core_account_usage_request(req)).await {
+    let core_req = match to_core_account_usage_request(req) {
+        Ok(req) => req,
+        Err(error) => {
+            return JsAccountUsageOutcome {
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
+    match core_get_account_usage(core_req).await {
         Ok(usage) => JsAccountUsageOutcome {
             result: Some(to_js_account_usage(&usage)),
             error: None,
@@ -923,6 +949,44 @@ impl Runner {
                 conversion_errors,
                 total,
             }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_valid_timeout(timeout_ms: f64) -> Duration {
+        parse_account_usage_timeout(timeout_ms)
+            .unwrap_or_else(|error| panic!("valid timeout rejected: {}", error.message))
+    }
+
+    #[test]
+    fn account_usage_timeout_accepts_supported_values() {
+        assert_eq!(parse_valid_timeout(-0.0), Duration::ZERO);
+        assert_eq!(parse_valid_timeout(0.0), Duration::ZERO);
+        assert_eq!(parse_valid_timeout(0.5), Duration::from_micros(500));
+        assert_eq!(parse_valid_timeout(1_000.0), Duration::from_secs(1));
+        assert_eq!(
+            parse_valid_timeout(f64::from(u32::MAX)),
+            Duration::from_millis(u64::from(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn account_usage_timeout_rejects_invalid_values() {
+        for timeout_ms in [
+            -1.0,
+            -f64::from_bits(1),
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::MAX,
+        ] {
+            let error =
+                parse_account_usage_timeout(timeout_ms).expect_err("timeout must be rejected");
+            assert_eq!(error.kind, "invalidRequest");
         }
     }
 }

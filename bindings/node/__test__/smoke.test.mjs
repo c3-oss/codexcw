@@ -8,6 +8,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import native from '../binding.js'
 import { Runner, CodexcwError, getAccountUsage } from '../index.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -250,6 +251,43 @@ done
       return true
     },
   )
+})
+
+const invalidAccountUsageTimeouts = [
+  -1,
+  -Number.MIN_VALUE,
+  Number.NaN,
+  Number.POSITIVE_INFINITY,
+  Number.NEGATIVE_INFINITY,
+  2 ** 64 * 1000,
+  Number.MAX_VALUE,
+]
+
+test('getAccountUsage rejects invalid timeoutMs values', async () => {
+  for (const timeoutMs of invalidAccountUsageTimeouts) {
+    await assert.rejects(getAccountUsage({ timeoutMs }), (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'invalidRequest')
+      assert.match(
+        err.message,
+        /account usage timeoutMs must be finite, non-negative/,
+      )
+      return true
+    })
+  }
+})
+
+test('getAccountUsageRaw preserves invalid timeoutMs errors', async () => {
+  for (const timeoutMs of invalidAccountUsageTimeouts) {
+    const outcome = await native.getAccountUsageRaw({ timeoutMs })
+
+    assert.equal(outcome.result, undefined)
+    assert.equal(outcome.error.kind, 'invalidRequest')
+    assert.match(
+      outcome.error.message,
+      /account usage timeoutMs must be finite, non-negative/,
+    )
+  }
 })
 
 test('ESM entrypoint re-exports getAccountUsage', async () => {
