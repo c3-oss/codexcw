@@ -736,6 +736,9 @@ fn session_from(result: Result<codexcw::Session, codexcw::Error>) -> Session {
 struct LiveGroup {
     core: codexcw::Group,
     stream: Mutex<ReceiverStream<codexcw::RunEvent>>,
+    indices: Vec<usize>,
+    conversion_errors: Vec<(usize, JsError)>,
+    total: usize,
 }
 
 /// A batch of running `codex exec` processes.
@@ -753,7 +756,7 @@ impl Group {
         let mut stream = group.stream.lock().await;
         stream.next().await.map(|run_event| JsRunEvent {
             run_id: run_event.run_id,
-            index: run_event.index as u32,
+            index: group.indices[run_event.index] as u32,
             event: to_js_event(&run_event.event),
         })
     }
@@ -765,14 +768,27 @@ impl Group {
             Ok(results) => results,
             Err(group_error) => group_error.results,
         };
-        results
+        let mut mapped: Vec<Option<JsGroupResult>> = (0..self.inner.total).map(|_| None).collect();
+        for (index, error) in &self.inner.conversion_errors {
+            mapped[*index] = Some(JsGroupResult {
+                index: *index as u32,
+                run_id: String::new(),
+                result: None,
+                error: Some(clone_js_error(error)),
+            });
+        }
+        for result in results {
+            let index = self.inner.indices[result.index];
+            mapped[index] = Some(JsGroupResult {
+                index: index as u32,
+                run_id: result.run_id,
+                result: result.result.as_ref().map(to_js_result),
+                error: result.error.as_ref().map(to_js_error),
+            });
+        }
+        mapped
             .into_iter()
-            .map(|r| JsGroupResult {
-                index: r.index as u32,
-                run_id: r.run_id,
-                result: r.result.as_ref().map(to_js_result),
-                error: r.error.as_ref().map(to_js_error),
-            })
+            .map(|result| result.expect("group result missing"))
             .collect()
     }
 
@@ -875,12 +891,18 @@ impl Runner {
     /// Launches many processes with bounded concurrency.
     #[napi]
     pub async fn run_many(&self, reqs: Vec<JsRequest>, options: Option<JsManyOptions>) -> Group {
+        let total = reqs.len();
         let mut requests = Vec::with_capacity(reqs.len());
-        for req in reqs {
-            // Conversion errors surface as per-run PromptRequired/InvalidRequest
-            // failures, mirroring the core. Fall back to an empty request so the
-            // core validation produces the matching error.
-            requests.push(to_core_request(req).unwrap_or_default());
+        let mut indices = Vec::with_capacity(reqs.len());
+        let mut conversion_errors = Vec::new();
+        for (index, req) in reqs.into_iter().enumerate() {
+            match to_core_request(req) {
+                Ok(request) => {
+                    requests.push(request);
+                    indices.push(index);
+                }
+                Err(error) => conversion_errors.push((index, error)),
+            }
         }
         let mut many = ManyOptions::default();
         if let Some(options) = options {
@@ -897,6 +919,9 @@ impl Runner {
             inner: Arc::new(LiveGroup {
                 core,
                 stream: Mutex::new(stream),
+                indices,
+                conversion_errors,
+                total,
             }),
         }
     }
