@@ -179,22 +179,25 @@ internal static class Wire
 {
     public static string Name(this Agent agent) => agent switch
     {
+        Agent.Codex => "codex",
         Agent.Claude => "claude",
-        _ => "codex",
+        _ => throw new InvalidRequestException($"unknown agent {(int)agent}"),
     };
 
     public static string ToWire(this SandboxMode mode) => mode switch
     {
+        SandboxMode.ReadOnly => "read-only",
         SandboxMode.WorkspaceWrite => "workspace-write",
         SandboxMode.DangerFullAccess => "danger-full-access",
-        _ => "read-only",
+        _ => throw new InvalidRequestException($"unknown sandbox mode {(int)mode}"),
     };
 
     public static string ToWire(this ApprovalPolicy policy) => policy switch
     {
         ApprovalPolicy.Untrusted => "untrusted",
         ApprovalPolicy.OnRequest => "on-request",
-        _ => "never",
+        ApprovalPolicy.Never => "never",
+        _ => throw new InvalidRequestException($"unknown approval policy {(int)policy}"),
     };
 
     public static string ToWire(this PermissionMode mode) => mode switch
@@ -204,6 +207,7 @@ internal static class Wire
         PermissionMode.BypassPermissions => "bypassPermissions",
         PermissionMode.Manual => "manual",
         PermissionMode.Plan => "plan",
-        _ => "dontAsk",
+        PermissionMode.DontAsk => "dontAsk",
+        _ => throw new InvalidRequestException($"unknown permission mode {(int)mode}"),
     };
 }

@@ -24,10 +24,16 @@ internal static class CodexArgs
             {
                 File.WriteAllText(schemaTempPath, request.OutputSchema);
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                File.Delete(schemaTempPath);
-                throw;
+                try
+                {
+                    File.Delete(schemaTempPath);
+                }
+                catch (IOException)
+                {
+                }
+                throw new ProcessException($"write output schema temp file: {ex.Message}", ex);
             }
             schemaPath = schemaTempPath;
         }
@@ -207,6 +213,8 @@ internal static class CodexArgs
     /// <summary>
     /// Writes the prompt payload to the agent's stdin: the prompt, the stdin
     /// stream, or the prompt with the stream wrapped in stdin markers.
+    /// Failures reading the request stream throw <see cref="ProcessException"/>;
+    /// pipe-write failures propagate as-is.
     /// </summary>
     public static async Task WritePromptAsync(Request request, Stream stdin, CancellationToken cancellationToken)
     {
@@ -222,7 +230,7 @@ internal static class CodexArgs
                 var open = Encoding.UTF8.GetBytes("\n\n<stdin>\n");
                 await stdin.WriteAsync(open, cancellationToken).ConfigureAwait(false);
             }
-            await request.Stdin.CopyToAsync(stdin, cancellationToken).ConfigureAwait(false);
+            await CopyStdinAsync(request.Stdin, stdin, cancellationToken).ConfigureAwait(false);
             if (request.Prompt.Length > 0)
             {
                 var close = Encoding.UTF8.GetBytes("\n</stdin>\n");
@@ -230,5 +238,31 @@ internal static class CodexArgs
             }
         }
         await stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task CopyStdinAsync(Stream source, Stream stdin, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            int read;
+            try
+            {
+                read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new ProcessException($"read request stdin: {ex.Message}", ex);
+            }
+            if (read == 0)
+            {
+                return;
+            }
+            await stdin.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
     }
 }

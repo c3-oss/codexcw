@@ -9,7 +9,14 @@ internal static class ClaudeArgs
         var schema = request.OutputSchema;
         if (!string.IsNullOrEmpty(request.OutputSchemaPath))
         {
-            schema = File.ReadAllText(request.OutputSchemaPath);
+            try
+            {
+                schema = File.ReadAllText(request.OutputSchemaPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw new InvalidRequestException($"read output schema {request.OutputSchemaPath}: {ex.Message}");
+            }
         }
 
         var args = new List<string> { "-p", "--output-format", "stream-json", "--verbose" };

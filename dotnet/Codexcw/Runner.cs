@@ -59,13 +59,18 @@ public sealed class Runner
     private readonly SandboxMode _defaultSandbox;
     private readonly ApprovalPolicy _defaultApproval;
 
-    /// <summary>Creates a Runner with safe automation defaults.</summary>
+    /// <summary>
+    /// Creates a Runner with safe automation defaults. Throws
+    /// <see cref="InvalidRequestException"/> when the configured agent is not
+    /// a defined <see cref="Agent"/> value.
+    /// </summary>
     public Runner(RunnerOptions? options = null)
     {
         options ??= new RunnerOptions();
         _agent = options.Agent;
-        _executable = string.IsNullOrEmpty(options.Executable) ? _agent.Name() : options.Executable;
-        _env = options.Env;
+        var agentName = _agent.Name();
+        _executable = string.IsNullOrEmpty(options.Executable) ? agentName : options.Executable;
+        _env = [.. options.Env];
         _eventBuffer = options.EventBuffer > 0 ? options.EventBuffer : DefaultEventBuffer;
         _stderrLimit = options.StderrLimit > 0 ? options.StderrLimit : DefaultStderrLimit;
         _scanMaxBytes = options.ScanMaxBytes > 0 ? options.ScanMaxBytes : DefaultScanMax;
@@ -81,7 +86,7 @@ public sealed class Runner
         RunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var session = Start(request, options, cancellationToken);
+        using var session = Start(request, options, cancellationToken);
         await foreach (var _ in session.Events(CancellationToken.None).ConfigureAwait(false))
         {
         }
@@ -94,6 +99,8 @@ public sealed class Runner
         RunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var prepared = _agent == Agent.Claude
             ? ClaudeArgs.Prepare(request)
             : CodexArgs.Prepare(request, _defaultSandbox, _defaultApproval);
@@ -103,6 +110,7 @@ public sealed class Runner
         Process process;
         try
         {
+            cts.Token.ThrowIfCancellationRequested();
             process = Spawn(prepared, request);
         }
         catch
@@ -112,11 +120,11 @@ public sealed class Runner
             throw;
         }
 
-        cts.Token.Register(() => Session.KillProcessTree(process));
+        session.SetKillRegistration(cts.Token.Register(() => Session.KillProcessTree(process)));
 
-        _ = WriteStdinAsync(process, request);
-        _ = session.ForwardEventsAsync();
-        _ = CollectAsync(session, process, prepared.SchemaTempPath, options?.Handler);
+        var stdinTask = WriteStdinAsync(process, request, session.Token);
+        session.StartForwarding();
+        _ = CollectAsync(session, process, prepared.SchemaTempPath, options?.Handler, stdinTask);
 
         return session;
     }
@@ -130,53 +138,82 @@ public sealed class Runner
         options ??= new GroupOptions();
         var maxConcurrent = options.MaxConcurrent > 0 ? options.MaxConcurrent : 4;
         var eventBuffer = options.EventBuffer > 0 ? options.EventBuffer : _eventBuffer;
+        var snapshot = requests.ToArray();
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var group = new Group(cts, eventBuffer);
-        _ = group.ForwardEventsAsync();
-        _ = RunManyAsync(group, requests, maxConcurrent, options.RunOptions);
+        group.StartForwarding();
+        _ = RunManyAsync(group, snapshot, maxConcurrent, options.RunOptions);
         return group;
     }
 
     private async Task RunManyAsync(
         Group group,
-        IReadOnlyList<Request> requests,
+        Request[] requests,
         int maxConcurrent,
         RunOptions? runOptions)
     {
-        var results = new GroupResult[requests.Count];
-        using var semaphore = new SemaphoreSlim(maxConcurrent);
-        var runs = new List<Task>(requests.Count);
-
-        for (var i = 0; i < requests.Count; i++)
+        var results = new GroupResult[requests.Length];
+        try
         {
-            if (group.Token.IsCancellationRequested)
+            using var semaphore = new SemaphoreSlim(maxConcurrent);
+            var runs = new List<Task>(requests.Length);
+
+            for (var i = 0; i < requests.Length; i++)
             {
-                results[i] = new GroupResult { Index = i, Error = new RunCanceledException() };
-                continue;
+                if (group.Token.IsCancellationRequested)
+                {
+                    results[i] = new GroupResult { Index = i, Error = new RunCanceledException() };
+                    continue;
+                }
+
+                await semaphore.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                var index = i;
+                var request = requests[i];
+                runs.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        results[index] = await RunOneAsync(group, index, request, runOptions).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }));
             }
 
-            await semaphore.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            var index = i;
-            var request = requests[i];
-            runs.Add(Task.Run(async () =>
+            await Task.WhenAll(runs).ConfigureAwait(false);
+            for (var i = 0; i < results.Length; i++)
             {
-                try
+                results[i] ??= new GroupResult
                 {
-                    results[index] = await RunOneAsync(group, index, request, runOptions).ConfigureAwait(false);
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            }));
+                    Index = i,
+                    Error = new ProcessException("run finished without reporting a result"),
+                };
+            }
         }
-
-        await Task.WhenAll(runs).ConfigureAwait(false);
+        catch (Exception ex)
+        {
+            group.Fault(ex);
+            return;
+        }
         group.Complete(results);
     }
 
     private async Task<GroupResult> RunOneAsync(Group group, int index, Request request, RunOptions? runOptions)
+    {
+        try
+        {
+            return await RunOneCoreAsync(group, index, request, runOptions).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            return new GroupResult { Index = index, Error = ex };
+        }
+    }
+
+    private async Task<GroupResult> RunOneCoreAsync(Group group, int index, Request request, RunOptions? runOptions)
     {
         if (group.Token.IsCancellationRequested)
         {
@@ -188,7 +225,7 @@ public sealed class Runner
         {
             session = Start(request, runOptions, group.Token);
         }
-        catch (Exception ex) when (ex is CodexcwException or OperationCanceledException)
+        catch (Exception ex)
         {
             return new GroupResult { Index = index, Error = ex };
         }
@@ -263,16 +300,40 @@ public sealed class Runner
         }
     }
 
-    private static async Task WriteStdinAsync(Process process, Request request)
+    /// <summary>
+    /// Delivers the prompt payload and reports how it went: null when the
+    /// input was delivered, the child closed its stdin early (Go ignores the
+    /// matching EPIPE), or the run was cancelled; an exception when the
+    /// request's stdin stream failed and the agent may have seen truncated
+    /// input.
+    /// </summary>
+    private static async Task<Exception?> WriteStdinAsync(
+        Process process,
+        Request request,
+        CancellationToken cancellationToken)
     {
         var stdin = process.StandardInput.BaseStream;
         try
         {
-            await CodexArgs.WritePromptAsync(request, stdin, CancellationToken.None).ConfigureAwait(false);
+            await CodexArgs.WritePromptAsync(request, stdin, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (ProcessException ex)
+        {
+            return ex;
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            // The child exited before reading its stdin; nothing to deliver.
+            // The child exited or closed its stdin before reading everything.
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return new ProcessException($"write agent stdin: {ex.Message}", ex);
         }
         finally
         {
@@ -280,13 +341,18 @@ public sealed class Runner
             {
                 stdin.Close();
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
             {
             }
         }
     }
 
-    private async Task CollectAsync(Session session, Process process, string? schemaTempPath, Func<Event, CancellationToken, ValueTask>? handler)
+    private async Task CollectAsync(
+        Session session,
+        Process process,
+        string? schemaTempPath,
+        Func<Event, CancellationToken, ValueTask>? handler,
+        Task<Exception?> stdinTask)
     {
         var startedAt = DateTimeOffset.Now;
         var events = new List<Event>();
@@ -295,136 +361,180 @@ public sealed class Runner
         var usage = new Usage();
         var threadId = "";
         Exception? runError = null;
-
         var stderrTail = new TailBuffer(_stderrLimit);
-        var stderrPump = stderrTail.PumpAsync(process.StandardError.BaseStream, CancellationToken.None);
-        var decoder = NewDecoder();
-        var stdout = process.StandardOutput.BaseStream;
 
-        var line = 0;
         try
         {
-            await foreach (var rawLine in JsonlReader.ReadLinesAsync(stdout, _scanMaxBytes).ConfigureAwait(false))
-            {
-                line++;
-                var raw = rawLine.Trim();
-                if (raw.Length == 0)
-                {
-                    continue;
-                }
+            var stderrPump = stderrTail.PumpAsync(process.StandardError.BaseStream, CancellationToken.None);
+            var decoder = NewDecoder();
+            var stdout = process.StandardOutput.BaseStream;
 
-                IReadOnlyList<Event> decoded;
-                try
-                {
-                    decoded = decoder.Decode(raw, session.Id, threadId, DateTimeOffset.Now);
-                }
-                catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException)
-                {
-                    runError = new DecodeException(line, raw, ex.Message, ex);
-                    session.Cancel();
-                    break;
-                }
-
-                foreach (var decodedEvent in decoded)
-                {
-                    var @event = decodedEvent;
-                    if (@event.ThreadStarted is not null)
-                    {
-                        threadId = @event.ThreadStarted.ThreadId;
-                        @event = @event with { ThreadId = threadId };
-                        session.SetThreadId(threadId);
-                    }
-                    if (@event.ThreadId.Length == 0)
-                    {
-                        @event = @event with { ThreadId = threadId };
-                    }
-                    if (@event.ItemCompleted?.Item is { Kind: ItemKind.AgentMessage } message)
-                    {
-                        finalMessage = message.Text;
-                    }
-                    if (@event.TurnCompleted is not null)
-                    {
-                        usage = @event.TurnCompleted.Usage;
-                    }
-                    if (@event.TurnFailed is not null)
-                    {
-                        usage = @event.TurnFailed.Usage;
-                    }
-
-                    lastEvent = @event;
-                    events.Add(@event);
-                    session.InternalWriter.TryWrite(@event);
-
-                    if (handler is not null)
-                    {
-                        try
-                        {
-                            await handler(@event, session.Token).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            runError = new HandlerException(ex);
-                            session.Cancel();
-                            break;
-                        }
-                    }
-                }
-                if (runError is not null)
-                {
-                    break;
-                }
-            }
-        }
-        catch (LineTooLongException ex)
-        {
-            runError ??= new DecodeException(line + 1, "", ex.Message, ex);
-            session.Cancel();
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-        {
-            // The pipe was force-closed by cancellation or the bounded drain.
-        }
-
-        await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-        var exitCode = process.ExitCode;
-
-        // Equivalent of Go's cmd.WaitDelay: a killed child's descendants can
-        // inherit stderr and keep the pipe open; force-close it after 1s.
-        var waitDelayExpired = false;
-        if (await Task.WhenAny(stderrPump, Task.Delay(WaitDelay)).ConfigureAwait(false) != stderrPump)
-        {
-            waitDelayExpired = true;
+            var line = 0;
             try
             {
-                process.StandardError.BaseStream.Dispose();
+                await foreach (var rawLine in JsonlReader.ReadLinesAsync(stdout, _scanMaxBytes).ConfigureAwait(false))
+                {
+                    line++;
+                    var raw = rawLine.Trim();
+                    if (raw.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    IReadOnlyList<Event> decoded;
+                    try
+                    {
+                        decoded = decoder.Decode(raw, session.Id, threadId, DateTimeOffset.Now);
+                    }
+                    catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException)
+                    {
+                        runError = new DecodeException(line, raw, ex.Message, ex);
+                        session.Cancel();
+                        break;
+                    }
+
+                    foreach (var decodedEvent in decoded)
+                    {
+                        var @event = decodedEvent;
+                        if (@event.ThreadStarted is not null)
+                        {
+                            threadId = @event.ThreadStarted.ThreadId;
+                            @event = @event with { ThreadId = threadId };
+                            session.SetThreadId(threadId);
+                        }
+                        if (@event.ThreadId.Length == 0)
+                        {
+                            @event = @event with { ThreadId = threadId };
+                        }
+                        if (@event.ItemCompleted?.Item is { Kind: ItemKind.AgentMessage } message)
+                        {
+                            finalMessage = message.Text;
+                        }
+                        if (@event.TurnCompleted is not null)
+                        {
+                            usage = @event.TurnCompleted.Usage;
+                        }
+                        if (@event.TurnFailed is not null)
+                        {
+                            usage = @event.TurnFailed.Usage;
+                        }
+
+                        lastEvent = @event;
+                        events.Add(@event);
+                        session.InternalWriter.TryWrite(@event);
+
+                        if (handler is not null)
+                        {
+                            try
+                            {
+                                await handler(@event, session.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (session.Token.IsCancellationRequested)
+                            {
+                                runError = new RunCanceledException();
+                                break;
+                            }
+                            catch (Exception ex)
+                            {
+                                runError = new HandlerException(ex);
+                                session.Cancel();
+                                break;
+                            }
+                        }
+                    }
+                    if (runError is not null)
+                    {
+                        break;
+                    }
+                }
             }
-            catch (IOException)
+            catch (LineTooLongException ex)
             {
+                runError ??= new DecodeException(line + 1, "", ex.Message, ex);
+                session.Cancel();
             }
-            await stderrPump.ConfigureAwait(false);
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+            {
+                if (!session.Token.IsCancellationRequested)
+                {
+                    runError = new ProcessException($"read agent stdout: {ex.Message}", ex);
+                    session.Cancel();
+                }
+            }
+
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            var exitCode = process.ExitCode;
+
+            // Equivalent of Go's cmd.WaitDelay: a killed child's descendants
+            // can inherit the stdio pipes and keep them open, and a blocked
+            // request stdin stream can keep the writer alive; force-close both
+            // pipes after 1s.
+            var waitDelayExpired = false;
+            var pumps = Task.WhenAll(stderrPump, stdinTask);
+            if (await Task.WhenAny(pumps, Task.Delay(WaitDelay)).ConfigureAwait(false) != pumps)
+            {
+                waitDelayExpired = true;
+                ForceClose(process.StandardError.BaseStream);
+                ForceClose(process.StandardInput.BaseStream);
+                await stderrPump.ConfigureAwait(false);
+            }
+
+            var result = new RunResult
+            {
+                RunId = session.Id,
+                ThreadId = threadId,
+                FinalMessage = finalMessage,
+                Usage = usage,
+                Events = events,
+                Stderr = stderrTail.ToString(),
+                StartedAt = startedAt,
+                FinishedAt = DateTimeOffset.Now,
+            };
+
+            runError ??= ClassifyAgentEvent(lastEvent);
+            runError ??= ClassifyProcessExit(session, exitCode, result.Stderr, lastEvent, waitDelayExpired);
+            if (runError is null && stdinTask.IsCompletedSuccessfully)
+            {
+                runError = stdinTask.Result;
+            }
+            AttachResult(runError, result);
+            session.Complete(result, runError);
         }
-
-        DeleteSchemaTemp(schemaTempPath);
-
-        var result = new RunResult
+        catch (Exception ex)
         {
-            RunId = session.Id,
-            ThreadId = threadId,
-            FinalMessage = finalMessage,
-            Usage = usage,
-            Events = events,
-            Stderr = stderrTail.ToString(),
-            StartedAt = startedAt,
-            FinishedAt = DateTimeOffset.Now,
-        };
+            session.Cancel();
+            var failure = new ProcessException($"collect agent events: {ex.Message}", ex);
+            failure.Result = new RunResult
+            {
+                RunId = session.Id,
+                ThreadId = threadId,
+                FinalMessage = finalMessage,
+                Usage = usage,
+                Events = events,
+                Stderr = stderrTail.ToString(),
+                StartedAt = startedAt,
+                FinishedAt = DateTimeOffset.Now,
+            };
+            session.Complete(failure.Result, failure);
+        }
+        finally
+        {
+            DeleteSchemaTemp(schemaTempPath);
+            session.InternalWriter.TryComplete();
+            session.ReleaseKillRegistration();
+            process.Dispose();
+        }
+    }
 
-        runError ??= ClassifyAgentEvent(lastEvent);
-        runError ??= ClassifyProcessExit(session, exitCode, result.Stderr, lastEvent, waitDelayExpired);
-        AttachResult(runError, result);
-
-        session.InternalWriter.TryComplete();
-        session.Complete(result, runError);
-        process.Dispose();
+    private static void ForceClose(Stream stream)
+    {
+        try
+        {
+            stream.Dispose();
+        }
+        catch (IOException)
+        {
+        }
     }
 
     private Exception? ClassifyAgentEvent(Event? lastEvent)
@@ -455,7 +565,7 @@ public sealed class Runner
         }
         if (waitDelayExpired)
         {
-            return new ProcessException("agent stderr stayed open past the 1s wait delay");
+            return new ProcessException("agent stdio stayed open past the 1s wait delay");
         }
         return null;
     }

@@ -38,17 +38,21 @@ public sealed record GroupOptions
 }
 
 /// <summary>Represents a batch of running agent processes.</summary>
-public sealed class Group : IDisposable
+public sealed class Group : IDisposable, IAsyncDisposable
 {
     private readonly Channel<RunEvent> _internalChannel;
     private readonly Channel<RunEvent> _publicChannel;
     private readonly TaskCompletionSource<IReadOnlyList<GroupResult>> _outcome =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _cts;
+    private readonly CancellationToken _token;
+    private Task _forwarderTask = Task.CompletedTask;
+    private int _disposed;
 
     internal Group(CancellationTokenSource cts, int eventBuffer)
     {
         _cts = cts;
+        _token = cts.Token;
         _internalChannel = Channel.CreateUnbounded<RunEvent>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -61,7 +65,7 @@ public sealed class Group : IDisposable
         });
     }
 
-    internal CancellationToken Token => _cts.Token;
+    internal CancellationToken Token => _token;
 
     internal ChannelWriter<RunEvent> InternalWriter => _internalChannel.Writer;
 
@@ -105,10 +109,43 @@ public sealed class Group : IDisposable
         return results;
     }
 
-    /// <summary>Releases the group's cancellation resources.</summary>
-    public void Dispose() => _cts.Dispose();
+    /// <summary>
+    /// Cancels the batch if it is still active and releases its cancellation
+    /// resources. Use <see cref="DisposeAsync"/> to also await the batch's
+    /// internal tasks.
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+        Cancel();
+        _cts.Dispose();
+    }
 
-    internal async Task ForwardEventsAsync()
+    /// <summary>
+    /// Cancels the batch if it is still active, waits for every run and the
+    /// event forwarder to finish, and releases the cancellation resources.
+    /// Failed runs do not throw here; <see cref="WaitAsync"/> reports them.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        Cancel();
+        try
+        {
+            await _outcome.Task.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is CodexcwException or OperationCanceledException)
+        {
+        }
+        await _forwarderTask.ConfigureAwait(false);
+        Dispose();
+    }
+
+    internal void StartForwarding() => _forwarderTask = ForwardEventsAsync();
+
+    private async Task ForwardEventsAsync()
     {
         try
         {
@@ -133,5 +170,12 @@ public sealed class Group : IDisposable
     {
         _internalChannel.Writer.TryComplete();
         _outcome.TrySetResult(results);
+    }
+
+    internal void Fault(Exception error)
+    {
+        _internalChannel.Writer.TryComplete();
+        _outcome.TrySetException(
+            new ProcessException($"run group orchestration failed: {error.Message}", error));
     }
 }

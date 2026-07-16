@@ -32,20 +32,25 @@ public sealed record RunResult
 }
 
 /// <summary>Represents one running agent process.</summary>
-public sealed class Session : IDisposable
+public sealed class Session : IDisposable, IAsyncDisposable
 {
     private readonly Channel<Event> _internalChannel;
     private readonly Channel<Event> _publicChannel;
     private readonly TaskCompletionSource<RunResult> _outcome =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _cts;
+    private readonly CancellationToken _token;
     private readonly object _threadIdLock = new();
+    private CancellationTokenRegistration _killRegistration;
+    private Task _forwarderTask = Task.CompletedTask;
     private string _threadId = "";
+    private int _disposed;
 
     internal Session(string id, CancellationTokenSource cts, int eventBuffer)
     {
         Id = id;
         _cts = cts;
+        _token = cts.Token;
         _internalChannel = Channel.CreateUnbounded<Event>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -74,9 +79,14 @@ public sealed class Session : IDisposable
         }
     }
 
-    internal CancellationToken Token => _cts.Token;
+    internal CancellationToken Token => _token;
 
     internal ChannelWriter<Event> InternalWriter => _internalChannel.Writer;
+
+    internal void SetKillRegistration(CancellationTokenRegistration registration) =>
+        _killRegistration = registration;
+
+    internal void ReleaseKillRegistration() => _killRegistration.Dispose();
 
     /// <summary>
     /// Streams decoded events until the process exits. Single consumer: the
@@ -110,8 +120,40 @@ public sealed class Session : IDisposable
             ? _outcome.Task.WaitAsync(cancellationToken)
             : _outcome.Task;
 
-    /// <summary>Releases the run's cancellation resources.</summary>
-    public void Dispose() => _cts.Dispose();
+    /// <summary>
+    /// Cancels the run if it is still active and releases its cancellation
+    /// resources. Use <see cref="DisposeAsync"/> to also await the run's
+    /// internal tasks.
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+        Cancel();
+        _killRegistration.Dispose();
+        _cts.Dispose();
+    }
+
+    /// <summary>
+    /// Cancels the run if it is still active, waits for the process and the
+    /// event forwarder to finish, and releases the cancellation resources.
+    /// A failed run does not throw here; <see cref="WaitAsync"/> reports it.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        Cancel();
+        try
+        {
+            await _outcome.Task.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is CodexcwException or OperationCanceledException)
+        {
+        }
+        await _forwarderTask.ConfigureAwait(false);
+        Dispose();
+    }
 
     internal void SetThreadId(string threadId)
     {
@@ -133,12 +175,14 @@ public sealed class Session : IDisposable
         }
     }
 
+    internal void StartForwarding() => _forwarderTask = ForwardEventsAsync();
+
     /// <summary>
     /// Copies events from the never-blocking internal channel into the bounded
     /// public channel, so a slow or absent consumer cannot stall the collector
     /// and cancellation releases a forwarder blocked on backpressure.
     /// </summary>
-    internal async Task ForwardEventsAsync()
+    private async Task ForwardEventsAsync()
     {
         try
         {

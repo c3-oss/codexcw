@@ -2,11 +2,16 @@ using System.Text;
 
 namespace C3OSS.Codexcw;
 
-/// <summary>Keeps only the last <c>limit</c> bytes written to it.</summary>
+/// <summary>
+/// Keeps only the last <c>limit</c> bytes written to it. Writes go into a
+/// fixed circular buffer, so a chatty stream costs no allocation per chunk.
+/// </summary>
 internal sealed class TailBuffer(int limit)
 {
     private readonly object _lock = new();
-    private byte[] _data = [];
+    private readonly byte[] _buffer = new byte[Math.Max(0, limit)];
+    private int _next;
+    private int _count;
 
     public void Write(ReadOnlySpan<byte> bytes)
     {
@@ -16,10 +21,18 @@ internal sealed class TailBuffer(int limit)
         }
         lock (_lock)
         {
-            var combined = new byte[_data.Length + bytes.Length];
-            _data.CopyTo(combined, 0);
-            bytes.CopyTo(combined.AsSpan(_data.Length));
-            _data = combined.Length > limit ? combined[^limit..] : combined;
+            if (bytes.Length >= limit)
+            {
+                bytes[^limit..].CopyTo(_buffer);
+                _next = 0;
+                _count = limit;
+                return;
+            }
+            var head = Math.Min(bytes.Length, limit - _next);
+            bytes[..head].CopyTo(_buffer.AsSpan(_next));
+            bytes[head..].CopyTo(_buffer);
+            _next = (_next + bytes.Length) % limit;
+            _count = Math.Min(limit, _count + bytes.Length);
         }
     }
 
@@ -49,7 +62,16 @@ internal sealed class TailBuffer(int limit)
     {
         lock (_lock)
         {
-            return Encoding.UTF8.GetString(_data);
+            if (_count == 0)
+            {
+                return "";
+            }
+            var start = _count < limit ? 0 : _next;
+            var ordered = new byte[_count];
+            var head = Math.Min(_count, limit - start);
+            _buffer.AsSpan(start, head).CopyTo(ordered);
+            _buffer.AsSpan(0, _count - head).CopyTo(ordered.AsSpan(head));
+            return Encoding.UTF8.GetString(ordered);
         }
     }
 }
