@@ -140,9 +140,9 @@ func New(opts ...Option) *Runner {
 	return r
 }
 
-// Handler receives decoded events as they stream from Codex.
+// Handler receives decoded events as they stream from the selected agent.
 type Handler interface {
-	// HandleCodexEvent processes one decoded event.
+	// HandleCodexEvent processes one decoded agent event.
 	HandleCodexEvent(context.Context, Event) error
 }
 
@@ -168,12 +168,12 @@ func WithHandler(handler Handler) RunOption {
 	}
 }
 
-// Result summarizes a completed codex exec invocation.
+// Result summarizes a completed agent invocation.
 type Result struct {
 	// RunID is the wrapper-assigned run id.
 	RunID string
 
-	// ThreadID is the Codex thread id once known.
+	// ThreadID is the selected agent's session or thread id once known.
 	ThreadID string
 
 	// FinalMessage is the last completed agent_message text.
@@ -200,7 +200,7 @@ type sessionOutcome struct {
 	err    error
 }
 
-// Session represents one running codex exec process.
+// Session represents one running agent process.
 type Session struct {
 	// ID is the wrapper-assigned run id.
 	ID string
@@ -220,7 +220,7 @@ func (s *Session) Events() <-chan Event {
 	return s.events
 }
 
-// ThreadID returns the Codex thread id once thread.started has arrived.
+// ThreadID returns the selected agent's id once thread.started has arrived.
 func (s *Session) ThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -253,7 +253,7 @@ func (s *Session) Wait() (*Result, error) {
 	return outcome.result, outcome.err
 }
 
-// Start launches one codex exec process and returns immediately.
+// Start launches one agent process and returns immediately.
 func (r *Runner) Start(ctx context.Context, req Request, opts ...RunOption) (*Session, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -411,6 +411,9 @@ scan:
 			if event.TurnCompleted != nil {
 				usage = event.TurnCompleted.Usage
 			}
+			if event.TurnFailed != nil {
+				usage = event.TurnFailed.Usage
+			}
 
 			eventCopy := event
 			lastEvent = &eventCopy
@@ -460,7 +463,7 @@ scan:
 	}
 
 	if runErr == nil {
-		runErr = classifyCodexEvent(lastEvent)
+		runErr = classifyAgentEvent(r.agent, lastEvent)
 	}
 	if runErr == nil {
 		runErr = classifyProcessError(ctx, waitErr, result.Stderr, lastEvent)
@@ -496,11 +499,14 @@ func classifyProcessError(ctx context.Context, waitErr error, stderr string, las
 	return waitErr
 }
 
-func classifyCodexEvent(lastEvent *Event) error {
+func classifyAgentEvent(agent Agent, lastEvent *Event) error {
 	if lastEvent == nil {
 		return nil
 	}
 	if lastEvent.Error != nil || lastEvent.TurnFailed != nil {
+		if agent == AgentClaude {
+			return &ClaudeError{Event: *lastEvent}
+		}
 		return &CodexError{Event: *lastEvent}
 	}
 	return nil
@@ -511,8 +517,12 @@ func newRunID() string {
 }
 
 func (r *Runner) prepare(req Request) (_ []string, _ io.Reader, cleanup func(), err error) {
-	if r.agent == AgentClaude {
+	switch r.agent {
+	case AgentClaude:
 		return r.prepareClaude(req)
+	case AgentCodex:
+	default:
+		return nil, nil, nil, fmt.Errorf("%w: unknown agent: %s", ErrInvalidRequest, r.agent)
 	}
 	if err := validateRequest(req); err != nil {
 		return nil, nil, nil, err

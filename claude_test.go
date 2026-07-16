@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","role":"assistant","c
 printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"sess-1"}'
 printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"File created successfully"}]},"session_id":"sess-1","tool_use_result":{"type":"create","filePath":"/work/hello.txt"}}'
 printf '%s\n' '{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"Done."}]},"session_id":"sess-1"}'
-printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"Done.","session_id":"sess-1","usage":{"input_tokens":18,"cache_creation_input_tokens":3750,"cache_read_input_tokens":45921,"output_tokens":380}}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"Done.","session_id":"sess-1","total_cost_usd":0.17833875,"usage":{"input_tokens":18,"cache_creation_input_tokens":3750,"cache_read_input_tokens":45921,"output_tokens":380},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":18,"outputTokens":380,"cacheReadInputTokens":45921,"cacheCreationInputTokens":3750,"webSearchRequests":2,"costUSD":0.17833875,"contextWindow":200000,"maxOutputTokens":64000}}}'
 `)
 
 	runner := New(
@@ -42,7 +43,20 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns"
 	assert.Equal(t, "Done.", result.FinalMessage)
 	assert.Equal(t, int64(18), result.Usage.InputTokens)
 	assert.Equal(t, int64(45921), result.Usage.CachedInputTokens)
+	assert.Equal(t, int64(3750), result.Usage.CacheCreationInputTokens)
 	assert.Equal(t, int64(380), result.Usage.OutputTokens)
+	assert.Equal(t, int64(50069), result.Usage.TotalTokens)
+	assert.InDelta(t, 0.17833875, result.Usage.TotalCostUSD, 0.00000001)
+	require.Contains(t, result.Usage.ModelUsage, "claude-haiku-4-5-20251001")
+	modelUsage := result.Usage.ModelUsage["claude-haiku-4-5-20251001"]
+	assert.Equal(t, int64(18), modelUsage.InputTokens)
+	assert.Equal(t, int64(380), modelUsage.OutputTokens)
+	assert.Equal(t, int64(45921), modelUsage.CacheReadInputTokens)
+	assert.Equal(t, int64(3750), modelUsage.CacheCreationInputTokens)
+	assert.Equal(t, int64(2), modelUsage.WebSearchRequests)
+	assert.InDelta(t, 0.17833875, modelUsage.CostUSD, 0.00000001)
+	assert.Equal(t, int64(200000), modelUsage.ContextWindow)
+	assert.Equal(t, int64(64000), modelUsage.MaxOutputTokens)
 
 	types := make([]EventType, 0, len(result.Events))
 	for _, event := range result.Events {
@@ -98,12 +112,12 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns"
 	assert.Contains(t, args, "--no-session-persistence")
 }
 
-func TestClaudeErrorResultReturnsCodexError(t *testing.T) {
+func TestClaudeErrorResultReturnsClaudeError(t *testing.T) {
 	fake := writeFakeCodex(t, `
 record_args "$@"
 cat >/dev/null
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-err"}'
-printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"result":"There is an issue with the selected model","session_id":"sess-err","usage":{"input_tokens":0,"output_tokens":0}}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"result":"There is an issue with the selected model","session_id":"sess-err","total_cost_usd":0.02,"usage":{"input_tokens":3,"cache_creation_input_tokens":5,"cache_read_input_tokens":7,"output_tokens":11},"modelUsage":{"claude-haiku":{"inputTokens":3,"outputTokens":11,"cacheReadInputTokens":7,"cacheCreationInputTokens":5,"costUSD":0.02}}}'
 exit 1
 `)
 
@@ -112,10 +126,17 @@ exit 1
 	require.Error(t, err)
 	require.NotNil(t, result)
 
+	var claudeErr *ClaudeError
+	require.True(t, errors.As(err, &claudeErr))
+	assert.Contains(t, claudeErr.Error(), "claude turn failed")
+	assert.Contains(t, claudeErr.Error(), "issue with the selected model")
+	require.NotNil(t, claudeErr.Event.TurnFailed)
+	assert.Equal(t, int64(26), result.Usage.TotalTokens)
+	assert.Equal(t, 0.02, result.Usage.TotalCostUSD)
+	assert.Contains(t, result.Usage.ModelUsage, "claude-haiku")
+
 	var codexErr *CodexError
-	require.True(t, errors.As(err, &codexErr))
-	assert.Contains(t, codexErr.Error(), "issue with the selected model")
-	require.NotNil(t, codexErr.Event.TurnFailed)
+	assert.False(t, errors.As(err, &codexErr))
 }
 
 func TestClaudeStructuredOutputBecomesFinalMessage(t *testing.T) {
@@ -143,8 +164,9 @@ func TestClaudeToolKindMapping(t *testing.T) {
 record_args "$@"
 cat >/dev/null
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-tools"}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}},{"type":"tool_use","id":"t2","name":"mcp__github__get_issue","input":{}},{"type":"tool_use","id":"t3","name":"WebSearch","input":{}},{"type":"tool_use","id":"t4","name":"Read","input":{}}]},"session_id":"sess-tools"}'
-printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"total 0"}],"is_error":false}]},"session_id":"sess-tools"}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}},{"type":"tool_use","id":"t2","name":"mcp__github__get_issue","input":{}},{"type":"tool_use","id":"t3","name":"WebSearch","input":{}},{"type":"tool_use","id":"t4","name":"Read","input":{}},{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"printf ok"}}]},"session_id":"sess-tools"}'
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Exit code 7","is_error":true}]},"session_id":"sess-tools","tool_use_result":"Error: Exit code 7"}'
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t5","content":"ok","is_error":false}]},"session_id":"sess-tools","tool_use_result":"ok"}'
 printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"sess-tools","usage":{"input_tokens":1,"output_tokens":1}}'
 `)
 
@@ -162,13 +184,53 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"o
 	assert.Equal(t, ItemMCPToolCall, kinds["t2"])
 	assert.Equal(t, ItemWebSearch, kinds["t3"])
 	assert.Equal(t, ItemToolCall, kinds["t4"])
+	assert.Equal(t, ItemCommandExecution, kinds["t5"])
 
 	for _, event := range result.Events {
-		if event.ItemCompleted != nil && event.ItemCompleted.Item.ID == "t1" {
+		if event.ItemCompleted == nil {
+			continue
+		}
+		switch event.ItemCompleted.Item.ID {
+		case "t1":
 			assert.Equal(t, "ls -la", event.ItemCompleted.Item.Command)
-			assert.Equal(t, "total 0", event.ItemCompleted.Item.AggregatedOutput)
+			assert.Equal(t, "Exit code 7", event.ItemCompleted.Item.AggregatedOutput)
+			assert.Equal(t, "failed", event.ItemCompleted.Item.Status)
+			require.NotNil(t, event.ItemCompleted.Item.ExitCode)
+			assert.Equal(t, 7, *event.ItemCompleted.Item.ExitCode)
+		case "t5":
+			assert.Equal(t, "printf ok", event.ItemCompleted.Item.Command)
+			assert.Equal(t, "ok", event.ItemCompleted.Item.AggregatedOutput)
+			assert.Equal(t, "completed", event.ItemCompleted.Item.Status)
+			require.NotNil(t, event.ItemCompleted.Item.ExitCode)
+			assert.Equal(t, 0, *event.ItemCompleted.Item.ExitCode)
 		}
 	}
+}
+
+func TestClaudeAssistantChunksHaveUniqueSyntheticIDs(t *testing.T) {
+	decoder := newClaudeEventDecoder()
+	now := time.Now()
+
+	first, err := decoder.decode(
+		[]byte(`{"type":"assistant","message":{"id":"msg_same","content":[{"type":"thinking","thinking":"pondering"}]},"session_id":"sess"}`),
+		"run",
+		"sess",
+		now,
+	)
+	require.NoError(t, err)
+	second, err := decoder.decode(
+		[]byte(`{"type":"assistant","message":{"id":"msg_same","content":[{"type":"text","text":"answer"}]},"session_id":"sess"}`),
+		"run",
+		"sess",
+		now,
+	)
+	require.NoError(t, err)
+
+	firstID := first[0].ItemCompleted.Item.ID
+	secondID := second[0].ItemCompleted.Item.ID
+	assert.Equal(t, "msg_same_0", firstID)
+	assert.Equal(t, "msg_same_1", secondID)
+	assert.NotEqual(t, firstID, secondID)
 }
 
 func TestClaudePrepareBuildsAdvancedArgs(t *testing.T) {
@@ -206,6 +268,43 @@ func TestClaudePrepareBuildsAdvancedArgs(t *testing.T) {
 	}
 	assert.NotContains(t, args, "--no-session-persistence")
 	assert.NotContains(t, args, "-C")
+}
+
+func TestClaudePermissionModeConstants(t *testing.T) {
+	assert.Equal(t, PermissionMode("auto"), PermissionAuto)
+	assert.Equal(t, PermissionMode("manual"), PermissionManual)
+}
+
+func TestUnknownAgentIsRejectedBeforeStartingAProcess(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	fake := writeFakeCodex(t, `touch "$CODEXCW_STARTED_FILE"`)
+
+	_, err := New(
+		WithAgent(Agent("unknown")),
+		WithExecutable(fake),
+		WithEnv("CODEXCW_STARTED_FILE="+marker),
+	).Run(context.Background(), Request{Prompt: "hello"})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidRequest)
+	assert.Contains(t, err.Error(), "unknown agent")
+	assert.NoFileExists(t, marker)
+}
+
+func TestClaudeSharedErrorsUseAgentName(t *testing.T) {
+	cause := errors.New("stop")
+	tests := []error{
+		&ExitError{Code: 7},
+		&DecodeError{Line: 2, Err: cause},
+		&HandlerError{Err: cause},
+		&GroupError{
+			Results: []GroupResult{{Err: cause}},
+		},
+	}
+	for _, err := range tests {
+		assert.Contains(t, err.Error(), "agent")
+		assert.NotContains(t, err.Error(), "codex")
+	}
 }
 
 func TestClaudePrepareResumeArgs(t *testing.T) {
@@ -300,4 +399,35 @@ func TestValidateRequestRejectsClaudeOnlyFields(t *testing.T) {
 	} {
 		assert.ErrorIs(t, validateRequest(req), ErrInvalidRequest)
 	}
+}
+
+func TestLiveClaudeRunNormalizesBashExitAndUsage(t *testing.T) {
+	if os.Getenv("CODEXCW_LIVE_TEST") != "1" {
+		t.Skip("set CODEXCW_LIVE_TEST=1 to run the authenticated Claude CLI")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	result, err := New(WithAgent(AgentClaude)).Run(ctx, Request{
+		Prompt:                   "Use Bash exactly once to run: sh -c 'exit 7'. Then briefly state the exit code.",
+		Dir:                      t.TempDir(),
+		Model:                    ClaudeModelHaiku,
+		DangerouslyBypassSandbox: true,
+	})
+	require.NoError(t, err)
+	assert.Positive(t, result.Usage.TotalTokens)
+	assert.Positive(t, result.Usage.TotalCostUSD)
+	assert.NotEmpty(t, result.Usage.ModelUsage)
+
+	var found bool
+	for _, event := range result.Events {
+		if event.ItemCompleted == nil || event.ItemCompleted.Item.Type != ItemCommandExecution {
+			continue
+		}
+		found = true
+		assert.Equal(t, "failed", event.ItemCompleted.Item.Status)
+		require.NotNil(t, event.ItemCompleted.Item.ExitCode)
+		assert.Equal(t, 7, *event.ItemCompleted.Item.ExitCode)
+	}
+	assert.True(t, found, "expected a completed Bash item")
 }

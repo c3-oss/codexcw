@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,8 +17,14 @@ const (
 	// PermissionAcceptEdits auto-approves file edits inside the workspace.
 	PermissionAcceptEdits PermissionMode = "acceptEdits"
 
+	// PermissionAuto lets Claude choose when to request permission.
+	PermissionAuto PermissionMode = "auto"
+
 	// PermissionBypassPermissions skips all permission checks.
 	PermissionBypassPermissions PermissionMode = "bypassPermissions"
+
+	// PermissionManual requires explicit permission for tool use.
+	PermissionManual PermissionMode = "manual"
 
 	// PermissionPlan keeps Claude in read-only planning mode.
 	PermissionPlan PermissionMode = "plan"
@@ -127,23 +134,29 @@ func validateClaudeRequest(req Request) error {
 // claudeEventDecoder normalizes the claude -p stream-json events into the
 // shared Event model. Raw always keeps the original Claude JSON line.
 type claudeEventDecoder struct {
-	pending       map[string]Item
-	lastAgentText string
+	pending        map[string]Item
+	lastAgentText  string
+	blockSequences map[string]uint64
 }
 
 func newClaudeEventDecoder() *claudeEventDecoder {
-	return &claudeEventDecoder{pending: make(map[string]Item)}
+	return &claudeEventDecoder{
+		pending:        make(map[string]Item),
+		blockSequences: make(map[string]uint64),
+	}
 }
 
 type claudeWireEvent struct {
-	Type          string             `json:"type"`
-	Subtype       string             `json:"subtype"`
-	SessionID     string             `json:"session_id"`
-	Message       *claudeWireMessage `json:"message"`
-	IsError       bool               `json:"is_error"`
-	Result        string             `json:"result"`
-	Usage         claudeWireUsage    `json:"usage"`
-	ToolUseResult json.RawMessage    `json:"tool_use_result"`
+	Type          string                          `json:"type"`
+	Subtype       string                          `json:"subtype"`
+	SessionID     string                          `json:"session_id"`
+	Message       *claudeWireMessage              `json:"message"`
+	IsError       bool                            `json:"is_error"`
+	Result        string                          `json:"result"`
+	Usage         claudeWireUsage                 `json:"usage"`
+	TotalCostUSD  float64                         `json:"total_cost_usd"`
+	ModelUsage    map[string]claudeWireModelUsage `json:"modelUsage"`
+	ToolUseResult json.RawMessage                 `json:"tool_use_result"`
 }
 
 type claudeWireMessage struct {
@@ -164,9 +177,21 @@ type claudeWireBlock struct {
 }
 
 type claudeWireUsage struct {
-	InputTokens          int64 `json:"input_tokens"`
-	CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
-	OutputTokens         int64 `json:"output_tokens"`
+	InputTokens              int64 `json:"input_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+}
+
+type claudeWireModelUsage struct {
+	InputTokens              int64   `json:"inputTokens"`
+	OutputTokens             int64   `json:"outputTokens"`
+	CacheReadInputTokens     int64   `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int64   `json:"cacheCreationInputTokens"`
+	WebSearchRequests        int64   `json:"webSearchRequests"`
+	CostUSD                  float64 `json:"costUSD"`
+	ContextWindow            int64   `json:"contextWindow"`
+	MaxOutputTokens          int64   `json:"maxOutputTokens"`
 }
 
 func (d *claudeEventDecoder) decode(line []byte, runID, threadID string, now time.Time) ([]Event, error) {
@@ -210,7 +235,7 @@ func (d *claudeEventDecoder) decode(line []byte, runID, threadID string, now tim
 
 func (d *claudeEventDecoder) decodeAssistant(base Event, wire *claudeWireEvent) ([]Event, error) {
 	var events []Event
-	for i, rawBlock := range claudeContentBlocks(wire.Message) {
+	for _, rawBlock := range claudeContentBlocks(wire.Message) {
 		var block claudeWireBlock
 		if err := json.Unmarshal(rawBlock, &block); err != nil {
 			return nil, err
@@ -219,7 +244,7 @@ func (d *claudeEventDecoder) decodeAssistant(base Event, wire *claudeWireEvent) 
 		case "text":
 			d.lastAgentText = block.Text
 			events = append(events, claudeItemCompleted(base, Item{
-				ID:     claudeBlockID(wire.Message.ID, i),
+				ID:     d.claudeBlockID(wire.Message.ID),
 				Type:   ItemAgentMessage,
 				Status: "completed",
 				Raw:    append(json.RawMessage(nil), rawBlock...),
@@ -227,7 +252,7 @@ func (d *claudeEventDecoder) decodeAssistant(base Event, wire *claudeWireEvent) 
 			}))
 		case "thinking":
 			events = append(events, claudeItemCompleted(base, Item{
-				ID:     claudeBlockID(wire.Message.ID, i),
+				ID:     d.claudeBlockID(wire.Message.ID),
 				Type:   ItemReasoning,
 				Status: "completed",
 				Raw:    append(json.RawMessage(nil), rawBlock...),
@@ -270,6 +295,13 @@ func (d *claudeEventDecoder) decodeUser(base Event, wire *claudeWireEvent) ([]Ev
 		if block.IsError {
 			item.Status = "failed"
 		}
+		if item.Type == ItemCommandExecution {
+			item.ExitCode = claudeCommandExitCode(block.Content, wire.ToolUseResult)
+			if item.ExitCode == nil && !block.IsError {
+				exitCode := 0
+				item.ExitCode = &exitCode
+			}
+		}
 		if item.Type == ItemFileChange && len(item.Changes) > 0 {
 			if kind := claudeFileChangeKind(wire.ToolUseResult); kind != "" {
 				item.Changes[0].Kind = kind
@@ -284,6 +316,7 @@ func (d *claudeEventDecoder) decodeUser(base Event, wire *claudeWireEvent) ([]Ev
 }
 
 func (d *claudeEventDecoder) decodeResult(base Event, wire *claudeWireEvent) []Event {
+	usage := claudeResultUsage(wire)
 	if wire.IsError {
 		message := wire.Result
 		if message == "" {
@@ -291,10 +324,13 @@ func (d *claudeEventDecoder) decodeResult(base Event, wire *claudeWireEvent) []E
 		}
 		failed := base
 		failed.Type = EventTurnFailed
-		failed.TurnFailed = &TurnFailedEvent{Error: ErrorPayload{
-			Message: message,
-			Raw:     base.Raw,
-		}}
+		failed.TurnFailed = &TurnFailedEvent{
+			Error: ErrorPayload{
+				Message: message,
+				Raw:     base.Raw,
+			},
+			Usage: usage,
+		}
 		return []Event{failed}
 	}
 
@@ -310,12 +346,27 @@ func (d *claudeEventDecoder) decodeResult(base Event, wire *claudeWireEvent) []E
 	}
 	completed := base
 	completed.Type = EventTurnCompleted
-	completed.TurnCompleted = &TurnCompletedEvent{Usage: Usage{
-		InputTokens:       wire.Usage.InputTokens,
-		CachedInputTokens: wire.Usage.CacheReadInputTokens,
-		OutputTokens:      wire.Usage.OutputTokens,
-	}}
+	completed.TurnCompleted = &TurnCompletedEvent{Usage: usage}
 	return append(events, completed)
+}
+
+func claudeResultUsage(wire *claudeWireEvent) Usage {
+	modelUsage := make(map[string]ModelUsage, len(wire.ModelUsage))
+	for model, usage := range wire.ModelUsage {
+		modelUsage[model] = ModelUsage(usage)
+	}
+	return Usage{
+		InputTokens:              wire.Usage.InputTokens,
+		CachedInputTokens:        wire.Usage.CacheReadInputTokens,
+		CacheCreationInputTokens: wire.Usage.CacheCreationInputTokens,
+		OutputTokens:             wire.Usage.OutputTokens,
+		TotalTokens: wire.Usage.InputTokens +
+			wire.Usage.CacheCreationInputTokens +
+			wire.Usage.CacheReadInputTokens +
+			wire.Usage.OutputTokens,
+		TotalCostUSD: wire.TotalCostUSD,
+		ModelUsage:   modelUsage,
+	}
 }
 
 func claudeToolItem(block claudeWireBlock, rawBlock json.RawMessage) Item {
@@ -412,11 +463,64 @@ func claudeFileChangeKind(raw json.RawMessage) string {
 	}
 }
 
-func claudeBlockID(messageID string, index int) string {
-	if messageID == "" {
-		return fmt.Sprintf("block_%d", index)
+func claudeCommandExitCode(content, toolUseResult json.RawMessage) *int {
+	for _, raw := range []json.RawMessage{toolUseResult, content} {
+		if len(raw) == 0 {
+			continue
+		}
+		var result struct {
+			ExitCode      *int `json:"exit_code"`
+			ExitCodeCamel *int `json:"exitCode"`
+		}
+		if json.Unmarshal(raw, &result) == nil {
+			switch {
+			case result.ExitCode != nil:
+				return result.ExitCode
+			case result.ExitCodeCamel != nil:
+				return result.ExitCodeCamel
+			}
+		}
+
+		var text string
+		if json.Unmarshal(raw, &text) != nil {
+			text = claudeToolResultText(raw)
+		}
+		if exitCode := claudeExitCodeFromText(text); exitCode != nil {
+			return exitCode
+		}
 	}
-	return fmt.Sprintf("%s_%d", messageID, index)
+	return nil
+}
+
+func claudeExitCodeFromText(text string) *int {
+	const marker = "exit code "
+	lower := strings.ToLower(text)
+	index := strings.Index(lower, marker)
+	if index == -1 {
+		return nil
+	}
+	value := text[index+len(marker):]
+	end := 0
+	for end < len(value) && (value[end] == '-' || value[end] >= '0' && value[end] <= '9') {
+		end++
+	}
+	if end == 0 {
+		return nil
+	}
+	code, err := strconv.Atoi(value[:end])
+	if err != nil {
+		return nil
+	}
+	return &code
+}
+
+func (d *claudeEventDecoder) claudeBlockID(messageID string) string {
+	sequence := d.blockSequences[messageID]
+	d.blockSequences[messageID]++
+	if messageID == "" {
+		return fmt.Sprintf("block_%d", sequence)
+	}
+	return fmt.Sprintf("%s_%d", messageID, sequence)
 }
 
 func claudeItemCompleted(base Event, item Item) Event {

@@ -15,7 +15,7 @@ type RunEvent struct {
 	// Index is the request index in the RunMany input slice.
 	Index int
 
-	// Event is the decoded Codex event.
+	// Event is the decoded agent event.
 	Event Event
 }
 
@@ -34,7 +34,7 @@ type GroupResult struct {
 	Err error
 }
 
-// Group represents a batch of running Codex processes.
+// Group represents a batch of running agent processes.
 type Group struct {
 	events <-chan RunEvent
 	cancel context.CancelFunc
@@ -50,7 +50,7 @@ type manyConfig struct {
 	runOptions    []RunOption
 }
 
-// WithMaxConcurrent limits how many Codex processes run at once.
+// WithMaxConcurrent limits how many agent processes run at once.
 func WithMaxConcurrent(n int) ManyOption {
 	return func(c *manyConfig) {
 		if n > 0 {
@@ -75,7 +75,7 @@ func WithRunOptions(opts ...RunOption) ManyOption {
 	}
 }
 
-// RunMany starts N Codex processes with bounded concurrency.
+// RunMany starts N agent processes with bounded concurrency.
 func (r *Runner) RunMany(ctx context.Context, reqs []Request, opts ...ManyOption) (*Group, error) {
 	if ctx == nil {
 		ctx = context.Background()
