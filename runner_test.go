@@ -81,6 +81,34 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 	assert.Equal(t, "Exit 7", result.FinalMessage)
 }
 
+func TestCollabToolCallItemIsTyped(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-3"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.started","item":{"id":"item_0","type":"collab_tool_call","tool":"wait","sender_thread_id":"thread-3","receiver_thread_ids":[],"agents_states":{},"status":"in_progress"}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"collab_tool_call","tool":"wait","sender_thread_id":"thread-3","receiver_thread_ids":[],"agents_states":{},"status":"completed"}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"red, green, blue"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`)
+
+	result, err := New(WithExecutable(fake)).Run(context.Background(), Request{Prompt: "spawn agents"})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Events, 6)
+
+	started := result.Events[2].ItemStarted.Item
+	assert.Equal(t, ItemCollabToolCall, started.Type)
+	assert.Equal(t, "in_progress", started.Status)
+	assert.Contains(t, string(started.Raw), `"tool":"wait"`)
+
+	completed := result.Events[3].ItemCompleted.Item
+	assert.Equal(t, ItemCollabToolCall, completed.Type)
+	assert.Equal(t, "completed", completed.Status)
+	assert.Equal(t, "red, green, blue", result.FinalMessage)
+}
+
 func TestProcessExitErrorCarriesStderrAndLastEvent(t *testing.T) {
 	fake := writeFakeCodex(t, `
 record_args "$@"

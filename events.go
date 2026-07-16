@@ -56,6 +56,10 @@ const (
 	// ItemPlanUpdate carries a Codex plan update.
 	ItemPlanUpdate ItemType = "plan_update"
 
+	// ItemCollabToolCall carries a multi-agent collab tool call
+	// (spawn/wait/send between agent threads).
+	ItemCollabToolCall ItemType = "collab_tool_call"
+
 	// ItemError carries an item-scoped Codex error.
 	ItemError ItemType = "error"
 )
