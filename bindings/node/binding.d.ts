@@ -224,6 +224,9 @@ export interface JsItem {
   exitCode?: number
   raw: string
   changes: Array<JsFileChange>
+  tool: string
+  senderThreadId: string
+  receiverThreadIds: Array<string>
 }
 
 /** Options for `runMany`. */

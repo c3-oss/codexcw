@@ -81,6 +81,9 @@ pub struct JsItem {
     pub exit_code: Option<i32>,
     pub raw: String,
     pub changes: Vec<JsFileChange>,
+    pub tool: String,
+    pub sender_thread_id: String,
+    pub receiver_thread_ids: Vec<String>,
 }
 
 /// One decoded agent event.
@@ -534,6 +537,9 @@ fn to_js_item(item: &Item) -> JsItem {
                 kind: c.kind.clone(),
             })
             .collect(),
+        tool: item.tool.clone(),
+        sender_thread_id: item.sender_thread_id.clone(),
+        receiver_thread_ids: item.receiver_thread_ids.clone(),
     }
 }
 
