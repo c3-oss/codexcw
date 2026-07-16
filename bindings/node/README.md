@@ -1,10 +1,11 @@
 # `@c3-oss/codexcw`
 
-Run the [Codex CLI](https://developers.openai.com/codex/cli) non-interactively
-from Node.js — spawn `codex exec --json`, decode its JSONL event stream, and
-consume runs as results, live event streams, or per-event callbacks. A native
-addon backed by a Rust core (napi-rs), with prebuilt binaries for macOS, Linux
-(gnu + musl), and Windows.
+Run Codex or Claude Code non-interactively from Node.js. The Codex agent wraps
+`codex exec --json`; the Claude agent wraps
+`claude -p --output-format stream-json`. Both expose results, live event
+streams, callbacks, typed usage, and typed errors through the same API. A
+native addon backed by a Rust core (napi-rs) provides prebuilt binaries for
+macOS, Linux (gnu + musl), and Windows.
 
 ## Install
 
@@ -12,8 +13,8 @@ addon backed by a Rust core (napi-rs), with prebuilt binaries for macOS, Linux
 npm install @c3-oss/codexcw
 ```
 
-The `codex` executable must be on `PATH`, authenticated, and new enough to
-support `codex exec --json`.
+The selected agent executable must be on `PATH` and authenticated. Codex must
+support `codex exec --json`; Claude must support `--output-format stream-json`.
 
 Runners can alternatively wrap Claude Code: `new Runner({ agent: 'claude' })`
 spawns `claude -p --output-format stream-json` and normalizes its events into
@@ -32,16 +33,24 @@ const runner = new Runner()
 
 const result = await runner.run({ prompt: 'say hi' })
 console.log(result.finalMessage)
+console.log(result.usage.totalTokens)
+console.log(result.usage.totalCostUsd)
 ```
 
 ```ts
-import { getAccountUsage } from '@c3-oss/codexcw'
+import {
+  getAccountUsage,
+  getClaudeAccountUsage,
+} from '@c3-oss/codexcw'
 
 const usage = await getAccountUsage({
   env: { CODEX_HOME: '/tmp/codex-home' },
 })
 console.log(usage.rateLimits.primary?.usedPercent)
 console.log(usage.tokenUsage?.summary.lifetimeTokens)
+
+const claudeUsage = await getClaudeAccountUsage()
+console.log(claudeUsage.windows)
 ```
 
 Full recipes — streaming, resume, sandbox/approval, batches, structured output,

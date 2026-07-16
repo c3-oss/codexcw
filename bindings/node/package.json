@@ -1,7 +1,7 @@
 {
   "name": "@c3-oss/codexcw",
   "version": "0.2.1",
-  "description": "Run the Codex CLI non-interactively from Node.js, backed by a Rust core.",
+  "description": "Run Codex or Claude Code non-interactively from Node.js, backed by a Rust core.",
   "license": "CC0-1.0",
   "repository": {
     "type": "git",

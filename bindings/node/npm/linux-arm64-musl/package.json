@@ -8,7 +8,7 @@
   "files": [
     "codexcw.linux-arm64-musl.node"
   ],
-  "description": "Run the Codex CLI non-interactively from Node.js, backed by a Rust core.",
+  "description": "Run Codex or Claude Code non-interactively from Node.js, backed by a Rust core.",
   "keywords": [
     "codex",
     "automation",
