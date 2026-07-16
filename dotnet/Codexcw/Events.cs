@@ -89,6 +89,9 @@ public sealed record Event
     /// <summary>Set for <see cref="EventKind.ThreadStarted"/>.</summary>
     public ThreadStartedPayload? ThreadStarted { get; init; }
 
+    /// <summary>Set for <see cref="EventKind.TurnStarted"/>.</summary>
+    public TurnStartedPayload? TurnStarted { get; init; }
+
     /// <summary>Set for <see cref="EventKind.TurnCompleted"/>.</summary>
     public TurnCompletedPayload? TurnCompleted { get; init; }
 
@@ -108,6 +111,9 @@ public sealed record Event
 /// <summary>Carries the agent session or thread id.</summary>
 /// <param name="ThreadId">The agent session or thread identifier.</param>
 public sealed record ThreadStartedPayload(string ThreadId);
+
+/// <summary>Marks the start of an agent turn. The wire payload is empty.</summary>
+public sealed record TurnStartedPayload;
 
 /// <summary>Carries token usage for the completed turn.</summary>
 /// <param name="Usage">The usage reported by the selected agent.</param>
@@ -167,6 +173,15 @@ public sealed record Item
 
     /// <summary>File edits for file_change items.</summary>
     public IReadOnlyList<FileChange> Changes { get; init; } = [];
+
+    /// <summary>The collab operation (spawn_agent, wait, ...) for collab_tool_call items.</summary>
+    public string Tool { get; init; } = "";
+
+    /// <summary>The thread id that issued a collab_tool_call item.</summary>
+    public string SenderThreadId { get; init; } = "";
+
+    /// <summary>The agent thread ids targeted by a collab_tool_call item.</summary>
+    public IReadOnlyList<string> ReceiverThreadIds { get; init; } = [];
 }
 
 /// <summary>Describes one file_change entry.</summary>
@@ -192,7 +207,11 @@ public sealed record Usage
     /// <summary>The number of reasoning output tokens.</summary>
     public long ReasoningOutputTokens { get; init; }
 
-    /// <summary>The reported or derived total token count.</summary>
+    /// <summary>
+    /// The total token count for the full run, subagents included. When the
+    /// agent omits an explicit total it is derived: input plus output tokens
+    /// for Codex, and the per-model sums when Claude reports model usage.
+    /// </summary>
     public long TotalTokens { get; init; }
 
     /// <summary>The total Claude run cost in US dollars.</summary>

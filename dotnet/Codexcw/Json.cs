@@ -124,3 +124,103 @@ internal static class Json
         _ => element.GetRawText(),
     };
 }
+
+/// <summary>
+/// Strict JsonElement accessors for agent event decoding: a missing or null
+/// field keeps its default, but a field present with an incompatible type is a
+/// decode failure, matching the typed deserialization in the Go and Rust
+/// implementations.
+/// </summary>
+internal static class StrictJson
+{
+    public static string GetStrictString(this JsonElement element, string name)
+    {
+        if (element.GetElement(name) is not { } value)
+        {
+            return "";
+        }
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            throw Mismatch(name, "string", value);
+        }
+        return value.GetString() ?? "";
+    }
+
+    public static bool GetStrictBool(this JsonElement element, string name)
+    {
+        if (element.GetElement(name) is not { } value)
+        {
+            return false;
+        }
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw Mismatch(name, "bool", value),
+        };
+    }
+
+    public static long GetStrictLong(this JsonElement element, string name)
+    {
+        if (element.GetElement(name) is not { } value)
+        {
+            return 0;
+        }
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var number))
+        {
+            throw Mismatch(name, "integer", value);
+        }
+        return number;
+    }
+
+    public static int? GetStrictNullableInt(this JsonElement element, string name)
+    {
+        if (element.GetElement(name) is not { } value)
+        {
+            return null;
+        }
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var number))
+        {
+            throw Mismatch(name, "integer", value);
+        }
+        return number;
+    }
+
+    public static double GetStrictDouble(this JsonElement element, string name)
+    {
+        if (element.GetElement(name) is not { } value)
+        {
+            return 0;
+        }
+        if (value.ValueKind != JsonValueKind.Number)
+        {
+            throw Mismatch(name, "number", value);
+        }
+        return value.GetDouble();
+    }
+
+    public static IReadOnlyList<string> GetStrictStringList(this JsonElement element, string name)
+    {
+        if (element.GetElement(name) is not { } value)
+        {
+            return [];
+        }
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            throw Mismatch(name, "array", value);
+        }
+        var parsed = new List<string>(value.GetArrayLength());
+        foreach (var entry in value.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.String)
+            {
+                throw Mismatch(name, "string array", entry);
+            }
+            parsed.Add(entry.GetString() ?? "");
+        }
+        return parsed;
+    }
+
+    private static FormatException Mismatch(string name, string expected, JsonElement value) =>
+        new($"field {name}: expected {expected}, got {value.ValueKind.ToString().ToLowerInvariant()}");
+}

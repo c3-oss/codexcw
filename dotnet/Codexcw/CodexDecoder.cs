@@ -17,7 +17,7 @@ internal sealed class CodexDecoder : IEventDecoder
     {
         using var document = JsonDocument.Parse(line);
         var root = document.RootElement;
-        var type = root.GetString("type");
+        var type = root.GetStrictString("type");
         if (type.Length == 0)
         {
             throw new FormatException("missing event type");
@@ -37,16 +37,22 @@ internal sealed class CodexDecoder : IEventDecoder
         {
             EventTypes.ThreadStarted => @event with
             {
-                ThreadId = root.GetString("thread_id"),
-                ThreadStarted = new ThreadStartedPayload(root.GetString("thread_id")),
+                ThreadId = root.GetStrictString("thread_id"),
+                ThreadStarted = new ThreadStartedPayload(root.GetStrictString("thread_id")),
+            },
+            EventTypes.TurnStarted => @event with
+            {
+                TurnStarted = new TurnStartedPayload(),
             },
             EventTypes.TurnCompleted => @event with
             {
-                TurnCompleted = new TurnCompletedPayload(ParseUsage(root.GetObject("usage"))),
+                TurnCompleted = new TurnCompletedPayload(ParseUsage(UsageObject(root))),
             },
             EventTypes.TurnFailed => @event with
             {
-                TurnFailed = new TurnFailedPayload(ParseErrorPayload(root.GetElement("error")), new Usage()),
+                TurnFailed = new TurnFailedPayload(
+                    ParseErrorPayload(root.GetElement("error")),
+                    ParseUsage(UsageObject(root))),
             },
             EventTypes.ItemStarted => @event with
             {
@@ -64,6 +70,19 @@ internal sealed class CodexDecoder : IEventDecoder
         };
     }
 
+    private static JsonElement? UsageObject(JsonElement root)
+    {
+        if (root.GetElement("usage") is not { } usage)
+        {
+            return null;
+        }
+        if (usage.ValueKind != JsonValueKind.Object)
+        {
+            throw new FormatException("field usage: expected object");
+        }
+        return usage;
+    }
+
     internal static Item DecodeItem(JsonElement? item)
     {
         if (item is not { } wire)
@@ -74,36 +93,44 @@ internal sealed class CodexDecoder : IEventDecoder
         {
             throw new FormatException("item payload is not an object");
         }
-        var type = wire.GetString("type");
-        int? exitCode = wire.GetElement("exit_code") is { ValueKind: JsonValueKind.Number } code
-            ? code.GetInt32()
-            : null;
+        var type = wire.GetStrictString("type");
         return new Item
         {
-            Id = wire.GetString("id"),
+            Id = wire.GetStrictString("id"),
             Kind = ItemTypes.KindOf(type),
             Type = type,
-            Status = wire.GetString("status"),
+            Status = wire.GetStrictString("status"),
             Raw = wire.GetRawText(),
-            Text = wire.GetString("text"),
-            Message = wire.GetString("message"),
-            Command = wire.GetString("command"),
-            AggregatedOutput = wire.GetString("aggregated_output"),
-            ExitCode = exitCode,
+            Text = wire.GetStrictString("text"),
+            Message = wire.GetStrictString("message"),
+            Command = wire.GetStrictString("command"),
+            AggregatedOutput = wire.GetStrictString("aggregated_output"),
+            ExitCode = wire.GetStrictNullableInt("exit_code"),
             Changes = ParseChanges(wire.GetElement("changes")),
+            Tool = wire.GetStrictString("tool"),
+            SenderThreadId = wire.GetStrictString("sender_thread_id"),
+            ReceiverThreadIds = wire.GetStrictStringList("receiver_thread_ids"),
         };
     }
 
     private static List<FileChange> ParseChanges(JsonElement? changes)
     {
-        if (changes is not { ValueKind: JsonValueKind.Array } array)
+        if (changes is null)
         {
             return [];
+        }
+        if (changes is not { ValueKind: JsonValueKind.Array } array)
+        {
+            throw new FormatException("field changes: expected array");
         }
         var parsed = new List<FileChange>(array.GetArrayLength());
         foreach (var change in array.EnumerateArray())
         {
-            parsed.Add(new FileChange(change.GetString("path"), change.GetString("kind")));
+            if (change.ValueKind != JsonValueKind.Object)
+            {
+                throw new FormatException("field changes: expected object entries");
+            }
+            parsed.Add(new FileChange(change.GetStrictString("path"), change.GetStrictString("kind")));
         }
         return parsed;
     }
@@ -115,7 +142,7 @@ internal sealed class CodexDecoder : IEventDecoder
             return new ErrorPayload();
         }
         var raw = wire.GetRawText();
-        var message = wire.GetString("message");
+        var message = wire.ValueKind == JsonValueKind.Object ? wire.GetStrictString("message") : "";
         if (message.Length == 0)
         {
             message = raw;
@@ -126,7 +153,7 @@ internal sealed class CodexDecoder : IEventDecoder
     private static ErrorPayload ParseTopLevelError(JsonElement root)
     {
         var raw = root.GetElement("error")?.GetRawText() ?? "";
-        var message = root.GetString("message");
+        var message = root.GetStrictString("message");
         if (message.Length == 0 && raw.Length > 0)
         {
             message = raw;
@@ -140,17 +167,24 @@ internal sealed class CodexDecoder : IEventDecoder
         {
             return new Usage();
         }
-        return new Usage
+        var parsed = new Usage
         {
-            InputTokens = wire.GetLong("input_tokens"),
-            CachedInputTokens = wire.GetLong("cached_input_tokens"),
-            CacheCreationInputTokens = wire.GetLong("cache_creation_input_tokens"),
-            OutputTokens = wire.GetLong("output_tokens"),
-            ReasoningOutputTokens = wire.GetLong("reasoning_output_tokens"),
-            TotalTokens = wire.GetLong("total_tokens"),
-            TotalCostUsd = wire.GetDouble("total_cost_usd"),
+            InputTokens = wire.GetStrictLong("input_tokens"),
+            CachedInputTokens = wire.GetStrictLong("cached_input_tokens"),
+            CacheCreationInputTokens = wire.GetStrictLong("cache_creation_input_tokens"),
+            OutputTokens = wire.GetStrictLong("output_tokens"),
+            ReasoningOutputTokens = wire.GetStrictLong("reasoning_output_tokens"),
+            TotalTokens = wire.GetStrictLong("total_tokens"),
+            TotalCostUsd = wire.GetStrictDouble("total_cost_usd"),
             ModelUsage = ParseModelUsage(wire.GetObject("model_usage")),
         };
+        // Codex omits total_tokens on the current wire; cached input is a
+        // subset of input, so the derived total is input plus output.
+        if (parsed.TotalTokens == 0)
+        {
+            parsed = parsed with { TotalTokens = parsed.InputTokens + parsed.OutputTokens };
+        }
+        return parsed;
     }
 
     private static Dictionary<string, ModelUsage> ParseModelUsage(JsonElement? modelUsage)
@@ -165,14 +199,14 @@ internal sealed class CodexDecoder : IEventDecoder
             var model = entry.Value;
             parsed[entry.Name] = new ModelUsage
             {
-                InputTokens = model.GetLong("input_tokens"),
-                OutputTokens = model.GetLong("output_tokens"),
-                CacheReadInputTokens = model.GetLong("cache_read_input_tokens"),
-                CacheCreationInputTokens = model.GetLong("cache_creation_input_tokens"),
-                WebSearchRequests = model.GetLong("web_search_requests"),
-                CostUsd = model.GetDouble("cost_usd"),
-                ContextWindow = model.GetLong("context_window"),
-                MaxOutputTokens = model.GetLong("max_output_tokens"),
+                InputTokens = model.GetStrictLong("input_tokens"),
+                OutputTokens = model.GetStrictLong("output_tokens"),
+                CacheReadInputTokens = model.GetStrictLong("cache_read_input_tokens"),
+                CacheCreationInputTokens = model.GetStrictLong("cache_creation_input_tokens"),
+                WebSearchRequests = model.GetStrictLong("web_search_requests"),
+                CostUsd = model.GetStrictDouble("cost_usd"),
+                ContextWindow = model.GetStrictLong("context_window"),
+                MaxOutputTokens = model.GetStrictLong("max_output_tokens"),
             };
         }
         return parsed;

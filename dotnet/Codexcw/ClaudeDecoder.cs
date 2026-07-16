@@ -16,13 +16,13 @@ internal sealed class ClaudeDecoder : IEventDecoder
     {
         using var document = JsonDocument.Parse(line);
         var root = document.RootElement;
-        var type = root.GetString("type");
+        var type = root.GetStrictString("type");
         if (type.Length == 0)
         {
             throw new FormatException("missing event type");
         }
 
-        var sessionId = root.GetString("session_id");
+        var sessionId = root.GetStrictString("session_id");
         var baseEvent = new Event
         {
             Kind = EventKind.Other,
@@ -45,7 +45,7 @@ internal sealed class ClaudeDecoder : IEventDecoder
 
     private static IReadOnlyList<Event> DecodeSystem(Event baseEvent, JsonElement root, string sessionId)
     {
-        if (root.GetString("subtype") != "init")
+        if (root.GetStrictString("subtype") != "init")
         {
             return [baseEvent];
         }
@@ -61,6 +61,7 @@ internal sealed class ClaudeDecoder : IEventDecoder
             {
                 Kind = EventKind.TurnStarted,
                 Type = EventTypes.TurnStarted,
+                TurnStarted = new TurnStartedPayload(),
             },
         ];
     }
@@ -155,6 +156,12 @@ internal sealed class ClaudeDecoder : IEventDecoder
                     item = item with { Changes = changes };
                 }
             }
+            if (item.Kind == ItemKind.CollabToolCall &&
+                toolUseResult is { ValueKind: JsonValueKind.Object } collab &&
+                collab.GetString("agentId") is { Length: > 0 } agentId)
+            {
+                item = item with { ReceiverThreadIds = [agentId] };
+            }
             events.Add(ItemCompleted(baseEvent, item));
         }
         return events.Count > 0 ? events : [baseEvent];
@@ -163,9 +170,9 @@ internal sealed class ClaudeDecoder : IEventDecoder
     private List<Event> DecodeResult(Event baseEvent, JsonElement root)
     {
         var usage = ResultUsage(root);
-        if (root.GetBool("is_error"))
+        if (root.GetStrictBool("is_error"))
         {
-            var message = root.GetString("result");
+            var message = root.GetStrictString("result");
             if (message.Length == 0)
             {
                 message = "claude run failed";
@@ -184,7 +191,7 @@ internal sealed class ClaudeDecoder : IEventDecoder
         }
 
         var events = new List<Event>();
-        var result = root.GetString("result");
+        var result = root.GetStrictString("result");
         if (result.Length > 0 && result != _lastAgentText)
         {
             events.Add(ItemCompleted(baseEvent, new Item
@@ -209,10 +216,10 @@ internal sealed class ClaudeDecoder : IEventDecoder
     private static Usage ResultUsage(JsonElement root)
     {
         var wire = root.GetObject("usage");
-        var inputTokens = wire?.GetLong("input_tokens") ?? 0;
-        var cacheCreation = wire?.GetLong("cache_creation_input_tokens") ?? 0;
-        var cacheRead = wire?.GetLong("cache_read_input_tokens") ?? 0;
-        var outputTokens = wire?.GetLong("output_tokens") ?? 0;
+        var inputTokens = wire?.GetStrictLong("input_tokens") ?? 0;
+        var cacheCreation = wire?.GetStrictLong("cache_creation_input_tokens") ?? 0;
+        var cacheRead = wire?.GetStrictLong("cache_read_input_tokens") ?? 0;
+        var outputTokens = wire?.GetStrictLong("output_tokens") ?? 0;
 
         var modelUsage = new Dictionary<string, ModelUsage>();
         if (root.GetObject("modelUsage") is { } models)
@@ -222,16 +229,29 @@ internal sealed class ClaudeDecoder : IEventDecoder
                 var model = entry.Value;
                 modelUsage[entry.Name] = new ModelUsage
                 {
-                    InputTokens = model.GetLong("inputTokens"),
-                    OutputTokens = model.GetLong("outputTokens"),
-                    CacheReadInputTokens = model.GetLong("cacheReadInputTokens"),
-                    CacheCreationInputTokens = model.GetLong("cacheCreationInputTokens"),
-                    WebSearchRequests = model.GetLong("webSearchRequests"),
-                    CostUsd = model.GetDouble("costUSD"),
-                    ContextWindow = model.GetLong("contextWindow"),
-                    MaxOutputTokens = model.GetLong("maxOutputTokens"),
+                    InputTokens = model.GetStrictLong("inputTokens"),
+                    OutputTokens = model.GetStrictLong("outputTokens"),
+                    CacheReadInputTokens = model.GetStrictLong("cacheReadInputTokens"),
+                    CacheCreationInputTokens = model.GetStrictLong("cacheCreationInputTokens"),
+                    WebSearchRequests = model.GetStrictLong("webSearchRequests"),
+                    CostUsd = model.GetStrictDouble("costUSD"),
+                    ContextWindow = model.GetStrictLong("contextWindow"),
+                    MaxOutputTokens = model.GetStrictLong("maxOutputTokens"),
                 };
             }
+        }
+
+        // result.usage covers the root agent only; modelUsage and the cost
+        // also cover subagents. The full-run total comes from modelUsage when
+        // Claude reports it.
+        var totalTokens = inputTokens + cacheCreation + cacheRead + outputTokens;
+        if (modelUsage.Count > 0)
+        {
+            totalTokens = modelUsage.Values.Sum(static model =>
+                model.InputTokens +
+                model.CacheCreationInputTokens +
+                model.CacheReadInputTokens +
+                model.OutputTokens);
         }
 
         return new Usage
@@ -240,8 +260,8 @@ internal sealed class ClaudeDecoder : IEventDecoder
             CachedInputTokens = cacheRead,
             CacheCreationInputTokens = cacheCreation,
             OutputTokens = outputTokens,
-            TotalTokens = inputTokens + cacheCreation + cacheRead + outputTokens,
-            TotalCostUsd = root.GetDouble("total_cost_usd"),
+            TotalTokens = totalTokens,
+            TotalCostUsd = root.GetStrictDouble("total_cost_usd"),
             ModelUsage = modelUsage,
         };
     }
@@ -286,7 +306,14 @@ internal sealed class ClaudeDecoder : IEventDecoder
                 return name switch
                 {
                     "WebSearch" => item with { Kind = ItemKind.WebSearch, Type = ItemTypes.WebSearch },
-                    "Task" => item with { Kind = ItemKind.CollabToolCall, Type = ItemTypes.CollabToolCall },
+                    // "Task" is the legacy name of the subagent tool; current
+                    // Claude Code CLIs call it "Agent".
+                    "Task" or "Agent" => item with
+                    {
+                        Kind = ItemKind.CollabToolCall,
+                        Type = ItemTypes.CollabToolCall,
+                        Tool = name,
+                    },
                     "TodoWrite" => item with { Kind = ItemKind.PlanUpdate, Type = ItemTypes.PlanUpdate },
                     _ => item with { Kind = ItemKind.ToolCall, Type = ItemTypes.ToolCall },
                 };
