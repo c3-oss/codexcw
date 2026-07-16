@@ -37,6 +37,9 @@ class PyItem:
     exit_code: Optional[int]
     raw: str
     changes: List[PyFileChange]
+    tool: str
+    sender_thread_id: str
+    receiver_thread_ids: List[str]
 
 class PyEvent:
     type: str
