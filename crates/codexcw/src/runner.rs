@@ -1,4 +1,4 @@
-//! The [`Runner`] that spawns `codex exec` processes and decodes their output.
+//! The [`Runner`] that spawns agent processes and decodes their output.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -15,6 +15,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 use tokio_util::sync::CancellationToken;
 
 use crate::args::prepare;
+use crate::claude::{prepare_claude, ClaudeDecoder};
 use crate::decoder::decode_event;
 use crate::error::Error;
 use crate::event::{Event, EventPayload, ItemKind, Usage};
@@ -27,6 +28,60 @@ pub(crate) const DEFAULT_STDERR_LIMIT: usize = 1 << 20;
 const DEFAULT_SCAN_MAX_BYTES: usize = 64 << 20;
 
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// The CLI wrapped by a [`Runner`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Agent {
+    /// `codex exec --json` (the default).
+    #[default]
+    Codex,
+    /// `claude -p --output-format stream-json`.
+    Claude,
+}
+
+impl Agent {
+    /// Returns the agent's default executable name.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Agent::Codex => "codex",
+            Agent::Claude => "claude",
+        }
+    }
+}
+
+impl std::fmt::Display for Agent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Turns one JSONL line into zero or more decoded events.
+enum EventDecoder {
+    Codex,
+    Claude(ClaudeDecoder),
+}
+
+impl EventDecoder {
+    fn for_agent(agent: Agent) -> Self {
+        match agent {
+            Agent::Codex => EventDecoder::Codex,
+            Agent::Claude => EventDecoder::Claude(ClaudeDecoder::default()),
+        }
+    }
+
+    fn decode(
+        &mut self,
+        line: &[u8],
+        run_id: &str,
+        thread_id: &str,
+        now: std::time::SystemTime,
+    ) -> Result<Vec<Event>, String> {
+        match self {
+            EventDecoder::Codex => decode_event(line, run_id, thread_id, now).map(|e| vec![e]),
+            EventDecoder::Claude(decoder) => decoder.decode(line, run_id, thread_id, now),
+        }
+    }
+}
 
 /// An async callback invoked for each streamed event. Returning `Err` cancels
 /// the run with a [`Error::Handler`].
@@ -59,6 +114,7 @@ impl RunOptions {
 }
 
 struct RunnerInner {
+    agent: Agent,
     executable: String,
     env: Vec<(String, String)>,
     event_buffer: usize,
@@ -68,7 +124,7 @@ struct RunnerInner {
     default_approval: ApprovalPolicy,
 }
 
-/// Starts `codex exec` processes with safe automation defaults.
+/// Starts agent processes with safe automation defaults.
 #[derive(Clone)]
 pub struct Runner {
     inner: Arc<RunnerInner>,
@@ -110,21 +166,27 @@ impl Runner {
         self.inner.event_buffer
     }
 
-    /// Launches one `codex exec` process and returns immediately.
+    /// Launches one agent process and returns immediately.
     pub async fn start(&self, req: Request) -> Result<Session, Error> {
         self.start_opts(req, RunOptions::default()).await
     }
 
     /// Launches one `codex exec` process with per-run options.
     pub async fn start_opts(&self, req: Request, opts: RunOptions) -> Result<Session, Error> {
-        let prepared = prepare(
-            &req,
-            self.inner.default_sandbox,
-            self.inner.default_approval,
-        )?;
+        let prepared = match self.inner.agent {
+            Agent::Claude => prepare_claude(&req)?,
+            Agent::Codex => prepare(
+                &req,
+                self.inner.default_sandbox,
+                self.inner.default_approval,
+            )?,
+        };
 
         let mut command = Command::new(&self.inner.executable);
         command.args(&prepared.args);
+        if let Some(dir) = &prepared.current_dir {
+            command.current_dir(dir);
+        }
         command.envs(self.inner.env.iter().map(|(k, v)| (k.clone(), v.clone())));
         command.envs(req.env.iter().map(|(k, v)| (k.clone(), v.clone())));
         command
@@ -172,6 +234,8 @@ impl Runner {
             thread_id: thread_id.clone(),
             scan_max_bytes: self.inner.scan_max_bytes,
             schema_temp: prepared.schema_temp,
+            decoder: EventDecoder::for_agent(self.inner.agent),
+            agent: self.inner.agent,
         }));
 
         Ok(Session {
@@ -198,7 +262,8 @@ impl Runner {
 
 /// Builds a [`Runner`].
 pub struct RunnerBuilder {
-    executable: String,
+    agent: Agent,
+    executable: Option<String>,
     env: Vec<(String, String)>,
     event_buffer: usize,
     stderr_limit: usize,
@@ -210,7 +275,8 @@ pub struct RunnerBuilder {
 impl Default for RunnerBuilder {
     fn default() -> Self {
         RunnerBuilder {
-            executable: crate::DEFAULT_EXECUTABLE.to_string(),
+            agent: Agent::Codex,
+            executable: None,
             env: Vec::new(),
             event_buffer: DEFAULT_EVENT_BUFFER,
             stderr_limit: DEFAULT_STDERR_LIMIT,
@@ -222,11 +288,17 @@ impl Default for RunnerBuilder {
 }
 
 impl RunnerBuilder {
-    /// Overrides the codex executable path. The primary test seam.
+    /// Selects the wrapped agent CLI. The default is [`Agent::Codex`].
+    pub fn agent(mut self, agent: Agent) -> Self {
+        self.agent = agent;
+        self
+    }
+
+    /// Overrides the agent executable path. The primary test seam.
     pub fn executable(mut self, path: impl Into<String>) -> Self {
         let path = path.into();
         if !path.is_empty() {
-            self.executable = path;
+            self.executable = Some(path);
         }
         self
     }
@@ -275,7 +347,10 @@ impl RunnerBuilder {
     pub fn build(self) -> Runner {
         Runner {
             inner: Arc::new(RunnerInner {
-                executable: self.executable,
+                agent: self.agent,
+                executable: self
+                    .executable
+                    .unwrap_or_else(|| self.agent.as_str().to_string()),
                 env: self.env,
                 event_buffer: self.event_buffer,
                 stderr_limit: self.stderr_limit,
@@ -300,6 +375,8 @@ struct CollectCtx {
     thread_id: Arc<Mutex<String>>,
     scan_max_bytes: usize,
     schema_temp: Option<tempfile::NamedTempFile>,
+    decoder: EventDecoder,
+    agent: Agent,
 }
 
 pub(crate) async fn drain_stderr(mut stderr: ChildStderr, tail: Arc<TailBuffer>) {
@@ -337,6 +414,8 @@ async fn collect(ctx: CollectCtx) {
         thread_id,
         scan_max_bytes,
         schema_temp,
+        mut decoder,
+        agent,
     } = ctx;
 
     let started_at = SystemTime::now();
@@ -350,7 +429,7 @@ async fn collect(ctx: CollectCtx) {
     let mut lines = FramedRead::new(stdout, LinesCodec::new_with_max_length(scan_max_bytes));
     let mut line_no = 0usize;
 
-    loop {
+    'lines: loop {
         let next = tokio::select! {
             biased;
             _ = cancel.cancelled() => None,
@@ -382,13 +461,13 @@ async fn collect(ctx: CollectCtx) {
             continue;
         }
 
-        let mut event = match decode_event(
+        let decoded = match decoder.decode(
             trimmed.as_bytes(),
             &run_id,
             &current_thread,
             SystemTime::now(),
         ) {
-            Ok(event) => event,
+            Ok(events) => events,
             Err(message) => {
                 run_err = Some(Error::Decode {
                     line: line_no,
@@ -400,33 +479,41 @@ async fn collect(ctx: CollectCtx) {
             }
         };
 
-        if let EventPayload::ThreadStarted { thread_id: tid } = &event.payload {
-            current_thread = tid.clone();
-            event.thread_id = current_thread.clone();
-            *thread_id.lock().expect("thread id poisoned") = current_thread.clone();
-        }
-        if event.thread_id.is_empty() {
-            event.thread_id = current_thread.clone();
-        }
-        if let EventPayload::ItemCompleted(item) = &event.payload {
-            if item.kind == ItemKind::AgentMessage {
-                final_message = item.text.clone();
+        for mut event in decoded {
+            if let EventPayload::ThreadStarted { thread_id: tid } = &event.payload {
+                current_thread = tid.clone();
+                event.thread_id = current_thread.clone();
+                *thread_id.lock().expect("thread id poisoned") = current_thread.clone();
             }
-        }
-        if let EventPayload::TurnCompleted { usage: turn_usage } = &event.payload {
-            usage = turn_usage.clone();
-        }
+            if event.thread_id.is_empty() {
+                event.thread_id = current_thread.clone();
+            }
+            if let EventPayload::ItemCompleted(item) = &event.payload {
+                if item.kind == ItemKind::AgentMessage {
+                    final_message = item.text.clone();
+                }
+            }
+            if let EventPayload::TurnCompleted { usage: turn_usage } = &event.payload {
+                usage = turn_usage.clone();
+            }
+            if let EventPayload::TurnFailed {
+                usage: turn_usage, ..
+            } = &event.payload
+            {
+                usage = turn_usage.clone();
+            }
 
-        last_event = Some(event.clone());
-        events.push(event.clone());
+            last_event = Some(event.clone());
+            events.push(event.clone());
 
-        let _ = event_tx.send(event.clone());
+            let _ = event_tx.send(event.clone());
 
-        if let Some(handler) = &handler {
-            if let Err(message) = handler(event.clone()).await {
-                run_err = Some(Error::Handler(message));
-                cancel.cancel();
-                break;
+            if let Some(handler) = &handler {
+                if let Err(message) = handler(event.clone()).await {
+                    run_err = Some(Error::Handler(message));
+                    cancel.cancel();
+                    break 'lines;
+                }
             }
         }
     }
@@ -452,7 +539,7 @@ async fn collect(ctx: CollectCtx) {
     };
 
     if run_err.is_none() {
-        run_err = classify_codex_event(last_event.as_ref());
+        run_err = classify_agent_event(agent, last_event.as_ref());
     }
     if run_err.is_none() {
         run_err = classify_process_error(&wait_result, &report.stderr, last_event.as_ref());
@@ -480,12 +567,13 @@ fn classify_process_error(
     }
 }
 
-fn classify_codex_event(last_event: Option<&Event>) -> Option<Error> {
+fn classify_agent_event(agent: Agent, last_event: Option<&Event>) -> Option<Error> {
     let event = last_event?;
     match &event.payload {
-        EventPayload::Error(_) | EventPayload::TurnFailed { .. } => {
-            Some(Error::codex_from_event(event))
-        }
+        EventPayload::Error(_) | EventPayload::TurnFailed { .. } => Some(match agent {
+            Agent::Codex => Error::codex_from_event(event),
+            Agent::Claude => Error::claude_from_event(event),
+        }),
         _ => None,
     }
 }

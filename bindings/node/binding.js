@@ -591,3 +591,4 @@ module.exports.Group = nativeBinding.Group
 module.exports.Runner = nativeBinding.Runner
 module.exports.Session = nativeBinding.Session
 module.exports.getAccountUsageRaw = nativeBinding.getAccountUsageRaw
+module.exports.getClaudeAccountUsageRaw = nativeBinding.getClaudeAccountUsageRaw

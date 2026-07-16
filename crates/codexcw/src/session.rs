@@ -1,4 +1,4 @@
-//! A running `codex exec` process and its completion summary.
+//! A running agent process and its completion summary.
 
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -11,12 +11,12 @@ use tokio_util::sync::CancellationToken;
 use crate::error::Error;
 use crate::event::{Event, Usage};
 
-/// Summary of a completed `codex exec` invocation.
+/// Summary of a completed agent invocation.
 #[derive(Clone, Debug)]
 pub struct RunResult {
     /// Wrapper-assigned run id.
     pub run_id: String,
-    /// Codex thread id once known.
+    /// Agent thread or session id once known.
     pub thread_id: String,
     /// Last completed `agent_message` text.
     pub final_message: String,
@@ -69,7 +69,7 @@ impl<T> Latch<T> {
 
 pub(crate) type Completion = Latch<RunOutcome>;
 
-/// One running `codex exec` process.
+/// One running agent process.
 pub struct Session {
     pub(crate) id: String,
     pub(crate) rx: Option<mpsc::Receiver<Event>>,
@@ -84,7 +84,7 @@ impl Session {
         &self.id
     }
 
-    /// Returns the Codex thread id once `thread.started` has arrived.
+    /// Returns the agent thread or session id once `thread.started` has arrived.
     pub fn thread_id(&self) -> String {
         self.thread_id.lock().expect("thread id poisoned").clone()
     }

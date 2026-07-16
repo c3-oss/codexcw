@@ -12,18 +12,28 @@ import pytest
 
 import codexcw
 import codexcw.aio
-from codexcw import AccountUsageRequest, CodexcwError, Request, Runner, get_account_usage
+from codexcw import (
+    AccountUsageRequest,
+    ClaudeAccountUsageRequest,
+    CodexcwError,
+    Request,
+    Runner,
+    get_account_usage,
+    get_claude_account_usage,
+)
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="fixture is a POSIX shell script"
 )
 
 FAKE_CODEX = Path(__file__).parent / "fixtures" / "fake_codex.sh"
+FAKE_CLAUDE = Path(__file__).parent / "fixtures" / "fake_claude.sh"
 
 
 @pytest.fixture(autouse=True)
 def _executable_fixture():
     FAKE_CODEX.chmod(FAKE_CODEX.stat().st_mode | stat.S_IEXEC)
+    FAKE_CLAUDE.chmod(FAKE_CLAUDE.stat().st_mode | stat.S_IEXEC)
 
 
 def _runner_with_capture(tmp_path: Path) -> tuple[Runner, Path, Path]:
@@ -130,6 +140,15 @@ def test_missing_prompt_raises_typed_error(tmp_path):
     assert excinfo.value.kind == "promptRequired"
 
 
+def test_invalid_agent_is_rejected_instead_of_falling_back_to_codex():
+    with pytest.raises(CodexcwError) as excinfo:
+        Runner(agent="unknown-agent")
+    assert excinfo.value.kind == "invalidRequest"
+    assert "unknown agent" in str(excinfo.value)
+    with pytest.raises(ValueError, match="unknown agent"):
+        codexcw._codexcw.Runner(agent="unknown-agent")
+
+
 def test_run_many_collects_results(tmp_path):
     runner, _, _ = _runner_with_capture(tmp_path)
 
@@ -146,6 +165,147 @@ def test_run_many_collects_results(tmp_path):
     for result in results:
         assert result.error is None
         assert result.result.final_message == "Oi."
+
+
+def test_claude_agent_normalizes_events(tmp_path):
+    args_file = tmp_path / "args.txt"
+    stdin_file = tmp_path / "stdin.txt"
+    runner = Runner(
+        agent=codexcw.AGENT_CLAUDE,
+        executable=str(FAKE_CLAUDE),
+        env={
+            "CODEXCW_ARGS_FILE": str(args_file),
+            "CODEXCW_STDIN_FILE": str(stdin_file),
+        },
+    )
+
+    result = runner.run(
+        Request(
+            prompt="create hello.txt",
+            model=codexcw.CLAUDE_MODEL_HAIKU,
+            permission_mode=codexcw.PERMISSION_ACCEPT_EDITS,
+        )
+    )
+
+    assert result.thread_id == "sess-1"
+    assert result.final_message == "Done."
+    assert result.usage.input_tokens == 18
+    assert result.usage.cached_input_tokens == 45921
+    assert result.usage.cache_creation_input_tokens == 3944
+    assert result.usage.output_tokens == 380
+    assert result.usage.total_tokens == 50263
+    assert result.usage.total_cost_usd == 0.013562
+    model_usage = result.usage.model_usage["claude-haiku-4-5-20251001"]
+    assert model_usage.input_tokens == 18
+    assert model_usage.output_tokens == 380
+    assert model_usage.cache_read_input_tokens == 45921
+    assert model_usage.cache_creation_input_tokens == 3944
+    assert model_usage.web_search_requests == 0
+    assert model_usage.cost_usd == 0.013562
+    assert model_usage.context_window == 200000
+    assert model_usage.max_output_tokens == 32000
+    assert [event.type for event in result.events] == [
+        "thread.started",
+        "turn.started",
+        "item.completed",
+        "item.started",
+        "item.completed",
+        "item.completed",
+        "item.completed",
+        "turn.completed",
+    ]
+    file_change = result.events[4].item
+    assert file_change.type == "file_change"
+    assert file_change.changes[0].path == "/work/hello.txt"
+    assert file_change.changes[0].kind == "add"
+    assert file_change.aggregated_output == "File created successfully"
+    assert result.events[5].item.id != result.events[6].item.id
+    assert codexcw.PERMISSION_AUTO == "auto"
+    assert codexcw.PERMISSION_MANUAL == "manual"
+
+    assert stdin_file.read_text() == "create hello.txt"
+    args = args_file.read_text().strip().split("\n")
+    assert args[0] == "-p"
+    assert "stream-json" in args
+    assert "--verbose" in args
+    assert "--model" in args
+    assert "haiku" in args
+    assert "--permission-mode" in args
+    assert "acceptEdits" in args
+    assert "--no-session-persistence" in args
+
+
+def test_claude_agent_rejects_codex_only_fields(tmp_path):
+    runner = Runner(agent=codexcw.AGENT_CLAUDE, executable=str(FAKE_CLAUDE))
+
+    with pytest.raises(CodexcwError) as excinfo:
+        runner.run(Request(prompt="x", sandbox="read-only"))
+    assert excinfo.value.kind == "invalidRequest"
+
+
+def test_claude_failures_use_claude_error_kind():
+    runner = Runner(
+        agent=codexcw.AGENT_CLAUDE,
+        executable=str(FAKE_CLAUDE),
+        env={"CODEXCW_CLAUDE_ERROR": "1"},
+    )
+
+    session = runner.start(Request(prompt="fail"))
+    events = list(session.events())
+    with pytest.raises(CodexcwError) as excinfo:
+        session.wait()
+    assert excinfo.value.kind == "claude"
+    assert "Claude fixture failure" in str(excinfo.value)
+    failed = next(event for event in events if event.type == "turn.failed")
+    assert failed.usage.total_tokens == 10
+
+
+def test_get_claude_account_usage_reads_report(tmp_path):
+    args_file = tmp_path / "claude-usage-args.txt"
+    stdin_file = tmp_path / "claude-usage-stdin.txt"
+    usage = get_claude_account_usage(
+        ClaudeAccountUsageRequest(
+            executable=str(FAKE_CLAUDE),
+            env={
+                "CODEXCW_ARGS_FILE": str(args_file),
+                "CODEXCW_STDIN_FILE": str(stdin_file),
+            },
+            timeout=5.0,
+        )
+    )
+
+    assert "currently using your subscription" in usage.report
+    windows = [
+        (window.label, window.used_percent, window.resets_at)
+        for window in usage.windows
+    ]
+    assert windows == [
+        (
+            "Current session",
+            13.0,
+            "Jul 16 at 3:50pm (America/Sao_Paulo)",
+        ),
+        (
+            "Current week (all models)",
+            5.0,
+            "Jul 18 at 9am (America/Sao_Paulo)",
+        ),
+    ]
+    assert '"type":"result"' in usage.raw
+    assert stdin_file.read_text() == "/usage"
+    args = args_file.read_text().strip().split("\n")
+    assert "-p" in args
+    assert "--output-format" in args
+    assert "json" in args
+    assert "--no-session-persistence" in args
+
+
+@pytest.mark.parametrize("timeout", [-1.0, float("nan"), float("inf")])
+def test_get_claude_account_usage_rejects_invalid_timeout(timeout):
+    with pytest.raises(CodexcwError) as excinfo:
+        get_claude_account_usage(ClaudeAccountUsageRequest(timeout=timeout))
+    assert excinfo.value.kind == "invalidRequest"
+    assert "finite non-negative" in str(excinfo.value)
 
 
 def test_run_many_preserves_request_conversion_errors(tmp_path):
@@ -293,6 +453,21 @@ async def test_async_get_account_usage(tmp_path):
     assert usage.account.email == "stub@example.com"
     assert usage.rate_limits_by_limit_id["spark"].limit_name == "Codex Spark"
     assert usage.token_usage.daily_usage_buckets[0].tokens == "42"
+
+
+async def test_async_get_claude_account_usage(tmp_path):
+    usage = await codexcw.aio.get_claude_account_usage(
+        ClaudeAccountUsageRequest(
+            executable=str(FAKE_CLAUDE),
+            env={
+                "CODEXCW_ARGS_FILE": str(tmp_path / "async-claude-args.txt"),
+                "CODEXCW_STDIN_FILE": str(tmp_path / "async-claude-stdin.txt"),
+            },
+        )
+    )
+
+    assert usage.windows[0].label == "Current session"
+    assert usage.windows[0].used_percent == 13.0
 
 
 @pytest.mark.parametrize(

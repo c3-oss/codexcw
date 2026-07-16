@@ -289,6 +289,81 @@ runner.run(Request {
 }).await?;
 ```
 
+## Claude Code agent
+
+The runner also wraps Claude Code's non-interactive mode
+(`claude -p --output-format stream-json`). Select it on the builder; the
+`claude` executable must be on `PATH` and authenticated. Events are normalized
+into the same [`Event`] model — `thread.started` carries the Claude session
+id, tool calls become `item.started`/`item.completed` pairs, and the final
+`result` maps to `turn.completed` — with `raw` always keeping the original
+Claude JSON line.
+
+```rust
+use codexcw::{claude_model, permission_mode, Agent, Request, Runner};
+
+let runner = Runner::builder().agent(Agent::Claude).build();
+
+let result = runner
+    .run(Request {
+        prompt: "crie um arquivo TODO.md".to_string(),
+        model: Some(claude_model::HAIKU.to_string()), // HAIKU, SONNET, or OPUS
+        permission_mode: Some(permission_mode::ACCEPT_EDITS.to_string()),
+        ..Default::default()
+    })
+    .await?;
+
+println!("total tokens: {}", result.usage.total_tokens);
+println!("cache creation: {}", result.usage.cache_creation_input_tokens);
+println!("cost: ${}", result.usage.total_cost_usd);
+for (model, usage) in &result.usage.model_usage {
+    println!(
+        "{model}: {} input, {} output",
+        usage.input_tokens, usage.output_tokens
+    );
+}
+```
+
+```rust
+// Tool filters and resume work per request:
+let _ = runner
+    .run(Request {
+        prompt: "rode os testes".to_string(),
+        model: Some(claude_model::SONNET.to_string()),
+        allowed_tools: vec!["Bash(cargo test *)".to_string(), "Read".to_string()],
+        disallowed_tools: vec!["WebSearch".to_string()],
+        ..Default::default()
+    })
+    .await;
+
+let first = runner
+    .run(Request {
+        prompt: "lembre disto".to_string(),
+        persistent: true,
+        ..Default::default()
+    })
+    .await?;
+let _ = runner
+    .run(Request {
+        prompt: "continue".to_string(),
+        resume_id: Some(first.thread_id.clone()), // or resume_last: true
+        persistent: true,
+        ..Default::default()
+    })
+    .await;
+```
+
+Claude runs support `dir` (applied as the process working directory),
+`add_dirs`, `output_schema`/`output_schema_path` (passed as `--json-schema`),
+and `dangerously_bypass_sandbox` (passed as
+`--dangerously-skip-permissions`). `permission_mode`, `allowed_tools`, and
+`disallowed_tools` are claude-only; codex-only fields (`sandbox`, `approval`,
+`profile`, `config`, `images`, feature flags) return
+`Error::InvalidRequest` on a claude runner.
+
+The permission-mode constants are `ACCEPT_EDITS`, `AUTO`,
+`BYPASS_PERMISSIONS`, `MANUAL`, `DONT_ASK`, and `PLAN`.
+
 ## Stdin input
 
 ```rust
@@ -340,6 +415,22 @@ if let Some(token_usage) = &usage.token_usage {
 `account` and `token_usage` are `None` when codex answers those reads with a
 JSON-RPC error; transport errors and timeouts fail the whole call.
 
+Claude account usage comes from `/usage`. The typed windows contain the label,
+used percentage, and Claude's reset description; `report` and `raw` preserve
+the complete human-readable report and JSON result line.
+
+```rust
+use codexcw::{get_claude_account_usage, ClaudeAccountUsageRequest};
+
+let usage = get_claude_account_usage(ClaudeAccountUsageRequest::default()).await?;
+for window in &usage.windows {
+    println!(
+        "{}: {}% used, resets {}",
+        window.label, window.used_percent, window.resets_at
+    );
+}
+```
+
 ## Error handling
 
 ```rust
@@ -347,8 +438,9 @@ use codexcw::{Error, Request, Runner};
 
 match runner.run(Request::new("...")).await {
     Ok(result) => println!("{}", result.final_message),
-    Err(Error::Exit { code, stderr, .. }) => println!("codex exited {code}: {stderr}"),
+    Err(Error::Exit { code, stderr, .. }) => println!("agent exited {code}: {stderr}"),
     Err(Error::Codex { message, .. }) => println!("codex reported: {message}"),
+    Err(Error::Claude { message, .. }) => println!("claude reported: {message}"),
     Err(Error::Decode { line, .. }) => println!("bad JSONL on line {line}"),
     Err(Error::PromptRequired) => println!("prompt or stdin is required"),
     Err(other) => println!("error: {other}"),

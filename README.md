@@ -3,9 +3,9 @@
 [![CI](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml/badge.svg)](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml)
 [![License: CC0 1.0](https://img.shields.io/badge/license-CC0%201.0-lightgrey.svg)](LICENSE)
 
-Run the Codex CLI non-interactively through `codex exec --json`: spawn Codex
-processes, decode the JSONL event stream, and expose each run as streams,
-callbacks, results, and typed errors.
+Run Codex or Claude Code non-interactively: spawn the selected agent, decode its
+JSONL event stream, and expose each run as streams, callbacks, results, and
+typed errors.
 
 `codexcw` ships as **four independent, idiomatic implementations** of the same
 contract — there is no FFI between them; each is native to its ecosystem:
@@ -25,11 +25,19 @@ support `codex exec --json`. Defaults are automation-friendly: JSONL streaming,
 ephemeral sessions, read-only sandbox, approval policy `never`, color disabled,
 and the Git repository check skipped.
 
-Account token usage and limits are available through separate helpers
-(`GetAccountUsage`, `get_account_usage`, `getAccountUsage`) that call
-`codex app-server --stdio`. They accept a custom executable, environment, and
-per-request timeout (10 seconds by default); the helpers use `~/.codex` for
-`CODEX_HOME` when it is not set.
+Runners can alternatively wrap **Claude Code**: selecting the `claude` agent
+spawns `claude -p --output-format stream-json` and normalizes its events into
+the same event model, with model selection between the `haiku`, `sonnet`, and
+`opus` aliases. See the per-language examples in
+[`docs/examples/`](docs/examples/).
+
+Account usage is available through agent-specific helpers. The Codex helpers
+(`GetAccountUsage`, `get_account_usage`, `getAccountUsage`) call
+`codex app-server --stdio` and return limits, credits, and token usage. The
+Claude helpers (`GetClaudeAccountUsage`, `get_claude_account_usage`,
+`getClaudeAccountUsage`) call Claude Code's `/usage` command and return its
+report, parsed percentage windows, and raw JSON. Both accept a custom
+executable, environment, and timeout.
 
 ## Go
 

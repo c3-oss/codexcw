@@ -9,11 +9,20 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 import native from '../binding.js'
-import { Runner, CodexcwError, getAccountUsage } from '../index.js'
+import {
+  Runner,
+  CodexcwError,
+  getAccountUsage,
+  getClaudeAccountUsage,
+  ClaudeModel,
+  PermissionMode,
+} from '../index.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fakeCodex = join(here, 'fixtures', 'fake-codex.sh')
+const fakeClaude = join(here, 'fixtures', 'fake-claude.sh')
 chmodSync(fakeCodex, 0o755)
+chmodSync(fakeClaude, 0o755)
 
 function runnerWithCapture() {
   const dir = mkdtempSync(join(tmpdir(), 'codexcw-'))
@@ -98,6 +107,22 @@ test('missing prompt surfaces a typed error', async () => {
   })
 })
 
+test('invalid agent is rejected instead of falling back to codex', () => {
+  assert.throws(
+    () => new Runner({ agent: 'unknown-agent' }),
+    (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'invalidRequest')
+      assert.match(err.message, /unknown agent/)
+      return true
+    },
+  )
+  assert.throws(
+    () => new native.Runner({ agent: 'unknown-agent' }),
+    /unknown agent/,
+  )
+})
+
 test('runMany collects results', async () => {
   const { runner } = runnerWithCapture()
 
@@ -117,6 +142,157 @@ test('runMany collects results', async () => {
   for (const r of results) {
     assert.equal(r.error, null)
     assert.equal(r.result.finalMessage, 'Oi.')
+  }
+})
+
+test('claude agent normalizes stream-json events', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codexcw-claude-'))
+  const argsFile = join(dir, 'args.txt')
+  const stdinFile = join(dir, 'stdin.txt')
+  const runner = new Runner({
+    agent: 'claude',
+    executable: fakeClaude,
+    env: { CODEXCW_ARGS_FILE: argsFile, CODEXCW_STDIN_FILE: stdinFile },
+  })
+
+  const result = await runner.run({
+    prompt: 'create hello.txt',
+    model: ClaudeModel.Haiku,
+    permissionMode: PermissionMode.AcceptEdits,
+  })
+
+  assert.equal(result.threadId, 'sess-1')
+  assert.equal(result.finalMessage, 'Done.')
+  assert.equal(result.usage.inputTokens, 18)
+  assert.equal(result.usage.cachedInputTokens, 45921)
+  assert.equal(result.usage.cacheCreationInputTokens, 3944)
+  assert.equal(result.usage.outputTokens, 380)
+  assert.equal(result.usage.totalTokens, 50263)
+  assert.equal(result.usage.totalCostUsd, 0.013562)
+  assert.deepEqual(
+    result.usage.modelUsage['claude-haiku-4-5-20251001'],
+    {
+      inputTokens: 18,
+      outputTokens: 380,
+      cacheReadInputTokens: 45921,
+      cacheCreationInputTokens: 3944,
+      webSearchRequests: 0,
+      costUsd: 0.013562,
+      contextWindow: 200000,
+      maxOutputTokens: 32000,
+    },
+  )
+  assert.deepEqual(
+    result.events.map((e) => e.type),
+    [
+      'thread.started',
+      'turn.started',
+      'item.completed',
+      'item.started',
+      'item.completed',
+      'item.completed',
+      'item.completed',
+      'turn.completed',
+    ],
+  )
+  const fileChange = result.events[4].item
+  assert.equal(fileChange.type, 'file_change')
+  assert.equal(fileChange.changes[0].path, '/work/hello.txt')
+  assert.equal(fileChange.changes[0].kind, 'add')
+  assert.equal(fileChange.aggregatedOutput, 'File created successfully')
+  assert.notEqual(result.events[5].item.id, result.events[6].item.id)
+  assert.equal(PermissionMode.Auto, 'auto')
+  assert.equal(PermissionMode.Manual, 'manual')
+
+  assert.equal(readFileSync(stdinFile, 'utf8'), 'create hello.txt')
+  const args = readFileSync(argsFile, 'utf8').trim().split('\n')
+  assert.equal(args[0], '-p')
+  assert.ok(args.includes('stream-json'))
+  assert.ok(args.includes('--verbose'))
+  assert.ok(args.includes('--model'))
+  assert.ok(args.includes('haiku'))
+  assert.ok(args.includes('--permission-mode'))
+  assert.ok(args.includes('acceptEdits'))
+  assert.ok(args.includes('--no-session-persistence'))
+})
+
+test('claude agent rejects codex-only fields', async () => {
+  const runner = new Runner({ agent: 'claude', executable: fakeClaude })
+
+  await assert.rejects(
+    runner.run({ prompt: 'x', sandbox: 'read-only' }),
+    (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'invalidRequest')
+      return true
+    },
+  )
+})
+
+test('claude failures use the claude error kind', async () => {
+  const runner = new Runner({
+    agent: 'claude',
+    executable: fakeClaude,
+    env: { CODEXCW_CLAUDE_ERROR: '1' },
+  })
+
+  const session = await runner.start({ prompt: 'fail' })
+  const events = []
+  for await (const event of session.events()) events.push(event)
+  await assert.rejects(session.wait(), (err) => {
+    assert.ok(err instanceof CodexcwError)
+    assert.equal(err.kind, 'claude')
+    assert.match(err.message, /Claude fixture failure/)
+    return true
+  })
+  const failed = events.find((event) => event.type === 'turn.failed')
+  assert.equal(failed.usage.totalTokens, 10)
+})
+
+test('getClaudeAccountUsage reads the Claude usage report', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codexcw-claude-usage-'))
+  const argsFile = join(dir, 'args.txt')
+  const stdinFile = join(dir, 'stdin.txt')
+  const usage = await getClaudeAccountUsage({
+    executable: fakeClaude,
+    env: {
+      CODEXCW_ARGS_FILE: argsFile,
+      CODEXCW_STDIN_FILE: stdinFile,
+    },
+    timeoutMs: 5000,
+  })
+
+  assert.match(usage.report, /currently using your subscription/)
+  assert.deepEqual(usage.windows, [
+    {
+      label: 'Current session',
+      usedPercent: 13,
+      resetsAt: 'Jul 16 at 3:50pm (America/Sao_Paulo)',
+    },
+    {
+      label: 'Current week (all models)',
+      usedPercent: 5,
+      resetsAt: 'Jul 18 at 9am (America/Sao_Paulo)',
+    },
+  ])
+  assert.match(usage.raw, /"type":"result"/)
+  assert.equal(readFileSync(stdinFile, 'utf8'), '/usage')
+  const args = readFileSync(argsFile, 'utf8').trim().split('\n')
+  assert.ok(args.includes('-p'))
+  assert.ok(args.includes('--output-format'))
+  assert.ok(args.includes('json'))
+  assert.ok(args.includes('--no-session-persistence'))
+})
+
+test('getClaudeAccountUsage rejects invalid timeout values', async () => {
+  for (const timeoutMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    await assert.rejects(
+      getClaudeAccountUsage({ timeoutMs }),
+      (error) =>
+        error instanceof CodexcwError &&
+        error.kind === 'invalidRequest' &&
+        error.message.includes('finite non-negative'),
+    )
   }
 })
 
@@ -290,9 +466,10 @@ test('getAccountUsageRaw preserves invalid timeoutMs errors', async () => {
   }
 })
 
-test('ESM entrypoint re-exports getAccountUsage', async () => {
+test('ESM entrypoint re-exports account usage helpers', async () => {
   const esm = await import('../index.mjs')
   assert.equal(typeof esm.getAccountUsage, 'function')
+  assert.equal(typeof esm.getClaudeAccountUsage, 'function')
 })
 
 test(

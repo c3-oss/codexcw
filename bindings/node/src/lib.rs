@@ -14,30 +14,50 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
 use codexcw::{
-    get_account_usage as core_get_account_usage, AccountCredits as CoreAccountCredits,
-    AccountRateLimitWindow as CoreAccountRateLimitWindow,
+    get_account_usage as core_get_account_usage,
+    get_claude_account_usage as core_get_claude_account_usage,
+    AccountCredits as CoreAccountCredits, AccountRateLimitWindow as CoreAccountRateLimitWindow,
     AccountRateLimits as CoreAccountRateLimits, AccountSpendLimit as CoreAccountSpendLimit,
     AccountTokenUsage as CoreAccountTokenUsage,
     AccountTokenUsageDailyBucket as CoreAccountTokenUsageDailyBucket,
     AccountTokenUsageSummary as CoreAccountTokenUsageSummary, AccountUsage as CoreAccountUsage,
     AccountUsageAccount as CoreAccountUsageAccount, AccountUsageRequest as CoreAccountUsageRequest,
-    ApprovalPolicy, ConfigOverride, Event, EventPayload, Item, ManyOptions, Request, RunResult,
-    Runner as CoreRunner, SandboxMode, Usage,
+    ApprovalPolicy, ClaudeAccountUsage as CoreClaudeAccountUsage,
+    ClaudeAccountUsageRequest as CoreClaudeAccountUsageRequest,
+    ClaudeAccountUsageWindow as CoreClaudeAccountUsageWindow, ConfigOverride, Event, EventPayload,
+    Item, ManyOptions, ModelUsage as CoreModelUsage, Request, RunResult, Runner as CoreRunner,
+    SandboxMode, Usage,
 };
 
 // ---------------------------------------------------------------------------
 // Plain-object types crossing the FFI boundary.
 // ---------------------------------------------------------------------------
 
-/// Token usage reported by Codex.
+/// Per-model usage reported by an agent.
+#[napi(object)]
+pub struct JsModelUsage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_input_tokens: i64,
+    pub cache_creation_input_tokens: i64,
+    pub web_search_requests: i64,
+    pub cost_usd: f64,
+    pub context_window: i64,
+    pub max_output_tokens: i64,
+}
+
+/// Token usage reported by an agent.
 #[napi(object)]
 #[derive(Default)]
 pub struct JsUsage {
     pub input_tokens: i64,
     pub cached_input_tokens: i64,
+    pub cache_creation_input_tokens: i64,
     pub output_tokens: i64,
     pub reasoning_output_tokens: i64,
     pub total_tokens: i64,
+    pub total_cost_usd: f64,
+    pub model_usage: HashMap<String, JsModelUsage>,
 }
 
 /// One file edit inside a `file_change` item.
@@ -47,7 +67,7 @@ pub struct JsFileChange {
     pub kind: String,
 }
 
-/// A typed projection of a Codex item.
+/// A typed projection of an agent item.
 #[napi(object)]
 pub struct JsItem {
     pub id: String,
@@ -63,7 +83,7 @@ pub struct JsItem {
     pub changes: Vec<JsFileChange>,
 }
 
-/// One decoded Codex event.
+/// One decoded agent event.
 #[napi(object)]
 pub struct JsEvent {
     #[napi(js_name = "type")]
@@ -94,7 +114,7 @@ pub struct JsRunResult {
 #[napi(object)]
 pub struct JsError {
     /// One of: `promptRequired`, `invalidRequest`, `exit`, `decode`, `codex`,
-    /// `handler`, `cancelled`, `process`.
+    /// `claude`, `handler`, `cancelled`, `process`.
     pub kind: String,
     pub message: String,
     pub code: Option<i32>,
@@ -209,6 +229,38 @@ pub struct JsAccountUsageOutcome {
     pub error: Option<JsError>,
 }
 
+/// Options for reading Claude account usage.
+#[napi(object)]
+pub struct JsClaudeAccountUsageRequest {
+    pub executable: Option<String>,
+    pub env: Option<HashMap<String, String>>,
+    /// Timeout in milliseconds. Defaults to 10 seconds.
+    pub timeout_ms: Option<f64>,
+}
+
+/// One Claude usage window.
+#[napi(object)]
+pub struct JsClaudeAccountUsageWindow {
+    pub label: String,
+    pub used_percent: f64,
+    pub resets_at: String,
+}
+
+/// Claude account usage report.
+#[napi(object)]
+pub struct JsClaudeAccountUsage {
+    pub report: String,
+    pub windows: Vec<JsClaudeAccountUsageWindow>,
+    pub raw: String,
+}
+
+/// Claude account usage paired with any terminal error.
+#[napi(object)]
+pub struct JsClaudeAccountUsageOutcome {
+    pub result: Option<JsClaudeAccountUsage>,
+    pub error: Option<JsError>,
+}
+
 /// One multiplexed event from `runMany`.
 #[napi(object)]
 pub struct JsRunEvent {
@@ -229,6 +281,8 @@ pub struct JsGroupResult {
 /// Options for constructing a [`Runner`].
 #[napi(object)]
 pub struct JsRunnerOptions {
+    /// Which agent CLI to wrap: `codex` (default) or `claude`.
+    pub agent: Option<String>,
     pub executable: Option<String>,
     pub env: Option<HashMap<String, String>>,
     pub event_buffer: Option<u32>,
@@ -245,7 +299,7 @@ pub struct JsManyOptions {
     pub event_buffer: Option<u32>,
 }
 
-/// A Codex run request. All fields are optional except prompt or stdin.
+/// An agent run request. All fields are optional except prompt or stdin.
 #[napi(object)]
 #[derive(Default)]
 pub struct JsRequest {
@@ -258,6 +312,9 @@ pub struct JsRequest {
     pub profile: Option<String>,
     pub sandbox: Option<String>,
     pub approval: Option<String>,
+    pub permission_mode: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub disallowed_tools: Option<Vec<String>>,
     pub config: Option<Vec<JsConfigOverride>>,
     pub enable: Option<Vec<String>>,
     pub disable: Option<Vec<String>>,
@@ -312,6 +369,14 @@ fn parse_approval(value: &str) -> Result<ApprovalPolicy, JsError> {
     }
 }
 
+fn parse_agent(value: &str) -> Result<codexcw::Agent, JsError> {
+    match value {
+        "codex" => Ok(codexcw::Agent::Codex),
+        "claude" => Ok(codexcw::Agent::Claude),
+        other => Err(invalid_request(format!("unknown agent: {other}"))),
+    }
+}
+
 fn invalid_request(message: String) -> JsError {
     JsError {
         kind: "invalidRequest".to_string(),
@@ -341,6 +406,9 @@ fn to_core_request(req: JsRequest) -> Result<Request, JsError> {
         profile: req.profile,
         sandbox,
         approval,
+        permission_mode: req.permission_mode,
+        allowed_tools: req.allowed_tools.unwrap_or_default(),
+        disallowed_tools: req.disallowed_tools.unwrap_or_default(),
         config: req
             .config
             .unwrap_or_default()
@@ -396,13 +464,54 @@ fn to_core_account_usage_request(
     }
 }
 
+fn to_core_claude_account_usage_request(
+    req: Option<JsClaudeAccountUsageRequest>,
+) -> Result<CoreClaudeAccountUsageRequest, JsError> {
+    match req {
+        Some(req) => {
+            let timeout = match req.timeout_ms {
+                Some(value) => Some(Duration::try_from_secs_f64(value / 1000.0).map_err(|_| {
+                    invalid_request("timeoutMs must be a finite non-negative number".to_string())
+                })?),
+                None => None,
+            };
+            Ok(CoreClaudeAccountUsageRequest {
+                executable: req.executable,
+                env: req.env.unwrap_or_default().into_iter().collect(),
+                timeout,
+            })
+        }
+        None => Ok(CoreClaudeAccountUsageRequest::default()),
+    }
+}
+
 fn to_js_usage(usage: &Usage) -> JsUsage {
     JsUsage {
         input_tokens: usage.input_tokens,
         cached_input_tokens: usage.cached_input_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
         output_tokens: usage.output_tokens,
         reasoning_output_tokens: usage.reasoning_output_tokens,
         total_tokens: usage.total_tokens,
+        total_cost_usd: usage.total_cost_usd,
+        model_usage: usage
+            .model_usage
+            .iter()
+            .map(|(model, usage)| (model.clone(), to_js_model_usage(usage)))
+            .collect(),
+    }
+}
+
+fn to_js_model_usage(usage: &CoreModelUsage) -> JsModelUsage {
+    JsModelUsage {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        web_search_requests: usage.web_search_requests,
+        cost_usd: usage.cost_usd,
+        context_window: usage.context_window,
+        max_output_tokens: usage.max_output_tokens,
     }
 }
 
@@ -435,7 +544,10 @@ fn to_js_event(event: &Event) -> JsEvent {
     match &event.payload {
         EventPayload::ItemStarted(i) | EventPayload::ItemCompleted(i) => item = Some(to_js_item(i)),
         EventPayload::TurnCompleted { usage: u } => usage = Some(to_js_usage(u)),
-        EventPayload::TurnFailed { error: e } => error = Some(e.message.clone()),
+        EventPayload::TurnFailed { error: e, usage: u } => {
+            error = Some(e.message.clone());
+            usage = Some(to_js_usage(u));
+        }
         EventPayload::Error(e) => error = Some(e.message.clone()),
         _ => {}
     }
@@ -494,6 +606,13 @@ fn to_js_error(error: &codexcw::Error) -> JsError {
         },
         Codex { .. } => JsError {
             kind: "codex".to_string(),
+            message: error.to_string(),
+            code: None,
+            stderr: None,
+            line: None,
+        },
+        Claude { .. } => JsError {
+            kind: "claude".to_string(),
             message: error.to_string(),
             code: None,
             stderr: None,
@@ -621,6 +740,28 @@ fn to_js_account_usage(usage: &CoreAccountUsage) -> JsAccountUsage {
     }
 }
 
+fn to_js_claude_account_usage_window(
+    window: &CoreClaudeAccountUsageWindow,
+) -> JsClaudeAccountUsageWindow {
+    JsClaudeAccountUsageWindow {
+        label: window.label.clone(),
+        used_percent: window.used_percent,
+        resets_at: window.resets_at.clone(),
+    }
+}
+
+fn to_js_claude_account_usage(usage: &CoreClaudeAccountUsage) -> JsClaudeAccountUsage {
+    JsClaudeAccountUsage {
+        report: usage.report.clone(),
+        windows: usage
+            .windows
+            .iter()
+            .map(to_js_claude_account_usage_window)
+            .collect(),
+        raw: usage.raw.clone(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Account usage.
 // ---------------------------------------------------------------------------
@@ -649,6 +790,32 @@ pub async fn get_account_usage_raw(req: Option<JsAccountUsageRequest>) -> JsAcco
     }
 }
 
+/// Reads Claude account usage through the Claude Code `/usage` command.
+#[napi]
+pub async fn get_claude_account_usage_raw(
+    req: Option<JsClaudeAccountUsageRequest>,
+) -> JsClaudeAccountUsageOutcome {
+    let req = match to_core_claude_account_usage_request(req) {
+        Ok(req) => req,
+        Err(error) => {
+            return JsClaudeAccountUsageOutcome {
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
+    match core_get_claude_account_usage(req).await {
+        Ok(usage) => JsClaudeAccountUsageOutcome {
+            result: Some(to_js_claude_account_usage(&usage)),
+            error: None,
+        },
+        Err(error) => JsClaudeAccountUsageOutcome {
+            result: None,
+            error: Some(to_js_error(&error)),
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Session.
 // ---------------------------------------------------------------------------
@@ -663,7 +830,7 @@ enum SessionInner {
     Failed(JsError),
 }
 
-/// A running `codex exec` process. Prefer the `events()` async iterator and
+/// A running selected-agent process. Prefer the `events()` async iterator and
 /// `wait()` exposed by the `index.js` wrapper over these raw methods.
 #[napi]
 pub struct Session {
@@ -710,7 +877,7 @@ impl Session {
         }
     }
 
-    /// The Codex thread id once known.
+    /// The agent thread or session id once known.
     #[napi]
     pub fn thread_id(&self) -> String {
         match &self.inner {
@@ -767,7 +934,7 @@ struct LiveGroup {
     total: usize,
 }
 
-/// A batch of running `codex exec` processes.
+/// A batch of running selected-agent processes.
 #[napi]
 pub struct Group {
     inner: Arc<LiveGroup>,
@@ -829,7 +996,7 @@ impl Group {
 // Runner.
 // ---------------------------------------------------------------------------
 
-/// Starts `codex exec` processes with safe automation defaults.
+/// Starts selected-agent processes with safe automation defaults.
 #[napi]
 pub struct Runner {
     core: CoreRunner,
@@ -841,9 +1008,14 @@ impl Runner {
     /// `defaultSandbox`/`defaultApproval` strings fall back to the safe
     /// defaults (read-only, never); the TypeScript types constrain them.
     #[napi(constructor)]
-    pub fn new(options: Option<JsRunnerOptions>) -> Self {
+    pub fn new(options: Option<JsRunnerOptions>) -> napi::Result<Self> {
         let mut builder = CoreRunner::builder();
         if let Some(options) = options {
+            if let Some(value) = options.agent {
+                let agent =
+                    parse_agent(&value).map_err(|error| napi::Error::from_reason(error.message))?;
+                builder = builder.agent(agent);
+            }
             if let Some(executable) = options.executable {
                 builder = builder.executable(executable);
             }
@@ -868,9 +1040,9 @@ impl Runner {
                     .default_approval(parse_approval(&value).unwrap_or(ApprovalPolicy::Never));
             }
         }
-        Runner {
+        Ok(Runner {
             core: builder.build(),
-        }
+        })
     }
 
     /// Launches one process and returns a [`Session`]. Never rejects: request

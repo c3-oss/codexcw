@@ -1,24 +1,25 @@
-//! Decoded Codex events and their typed payloads.
+//! Decoded agent events and their typed payloads.
 
+use std::collections::HashMap;
 use std::time::SystemTime;
 
-/// Top-level `type` field emitted by `codex exec --json`.
+/// Normalized top-level event type.
 ///
-/// Unknown values are preserved as [`EventKind::Other`] so new Codex event
+/// Unknown values are preserved as [`EventKind::Other`] so new agent event
 /// types stream through without being dropped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EventKind {
-    /// `thread.started` — Codex created or resumed a thread.
+    /// `thread.started` — the agent created or resumed a thread.
     ThreadStarted,
-    /// `turn.started` — a Codex turn began.
+    /// `turn.started` — an agent turn began.
     TurnStarted,
-    /// `turn.completed` — a Codex turn finished successfully.
+    /// `turn.completed` — an agent turn finished successfully.
     TurnCompleted,
-    /// `turn.failed` — a Codex turn failed.
+    /// `turn.failed` — an agent turn failed.
     TurnFailed,
-    /// `item.started` — Codex started a streamed item.
+    /// `item.started` — the agent started a streamed item.
     ItemStarted,
-    /// `item.completed` — Codex completed a streamed item.
+    /// `item.completed` — the agent completed a streamed item.
     ItemCompleted,
     /// `error` — a top-level Codex error.
     Error,
@@ -68,18 +69,20 @@ impl std::fmt::Display for EventKind {
 pub enum ItemKind {
     /// `agent_message` — assistant text.
     AgentMessage,
-    /// `reasoning` — a Codex reasoning item.
+    /// `reasoning` — an agent reasoning item.
     Reasoning,
     /// `command_execution` — a shell command execution.
     CommandExecution,
-    /// `file_change` — file edits made by Codex.
+    /// `file_change` — file edits made by the agent.
     FileChange,
     /// `mcp_tool_call` — an MCP tool call.
     McpToolCall,
     /// `web_search` — a web search operation.
     WebSearch,
-    /// `plan_update` — a Codex plan update.
+    /// `plan_update` — an agent plan update.
     PlanUpdate,
+    /// `tool_call` — a generic tool call from the claude agent.
+    ToolCall,
     /// `collab_tool_call` — a multi-agent collab tool call
     /// (spawn/wait/send between agent threads).
     CollabToolCall,
@@ -100,6 +103,7 @@ impl ItemKind {
             ItemKind::McpToolCall => "mcp_tool_call",
             ItemKind::WebSearch => "web_search",
             ItemKind::PlanUpdate => "plan_update",
+            ItemKind::ToolCall => "tool_call",
             ItemKind::CollabToolCall => "collab_tool_call",
             ItemKind::Error => "error",
             ItemKind::Other(value) => value,
@@ -115,6 +119,7 @@ impl ItemKind {
             "mcp_tool_call" => ItemKind::McpToolCall,
             "web_search" => ItemKind::WebSearch,
             "plan_update" => ItemKind::PlanUpdate,
+            "tool_call" => ItemKind::ToolCall,
             "collab_tool_call" => ItemKind::CollabToolCall,
             "error" => ItemKind::Error,
             other => ItemKind::Other(other.to_string()),
@@ -129,11 +134,14 @@ impl std::fmt::Display for ItemKind {
 }
 
 /// Token usage reported by `turn.completed`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
 pub struct Usage {
     /// Number of input tokens consumed.
     #[serde(default)]
     pub input_tokens: i64,
+    /// Number of input tokens written to Claude's prompt cache.
+    #[serde(default)]
+    pub cache_creation_input_tokens: i64,
     /// Number of cached input tokens.
     #[serde(default)]
     pub cached_input_tokens: i64,
@@ -143,9 +151,45 @@ pub struct Usage {
     /// Number of reasoning output tokens.
     #[serde(default)]
     pub reasoning_output_tokens: i64,
-    /// Total tokens, when Codex reports one.
+    /// Total tokens reported or calculated for the turn.
     #[serde(default)]
     pub total_tokens: i64,
+    /// Total Claude API cost in US dollars.
+    #[serde(default)]
+    pub total_cost_usd: f64,
+    /// Claude usage and cost grouped by model.
+    #[serde(default)]
+    pub model_usage: HashMap<String, ModelUsage>,
+}
+
+/// Claude token usage and cost for one model.
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsage {
+    /// Number of input tokens consumed.
+    #[serde(default)]
+    pub input_tokens: i64,
+    /// Number of output tokens produced.
+    #[serde(default)]
+    pub output_tokens: i64,
+    /// Number of cached input tokens read.
+    #[serde(default)]
+    pub cache_read_input_tokens: i64,
+    /// Number of input tokens written to the prompt cache.
+    #[serde(default)]
+    pub cache_creation_input_tokens: i64,
+    /// Number of web search requests.
+    #[serde(default)]
+    pub web_search_requests: i64,
+    /// API cost in US dollars.
+    #[serde(default, rename = "costUSD")]
+    pub cost_usd: f64,
+    /// Model context window size.
+    #[serde(default)]
+    pub context_window: i64,
+    /// Model maximum output token count.
+    #[serde(default)]
+    pub max_output_tokens: i64,
 }
 
 /// One `file_change` entry inside a `file_change` item.
@@ -154,19 +198,19 @@ pub struct FileChange {
     /// Absolute or workspace-relative file path.
     #[serde(default)]
     pub path: String,
-    /// Change kind reported by Codex.
+    /// Change kind reported by the agent.
     #[serde(default)]
     pub kind: String,
 }
 
-/// A typed projection of a Codex item payload. [`Item::raw`] stays authoritative.
+/// A typed projection of an agent item payload. [`Item::raw`] stays authoritative.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Item {
-    /// Codex item id.
+    /// Agent item id.
     pub id: String,
-    /// Codex item type.
+    /// Agent item type.
     pub kind: ItemKind,
-    /// Item status when Codex reports one.
+    /// Item status when the agent reports one.
     pub status: String,
     /// Original nested item payload as JSON text.
     pub raw: String,
@@ -176,7 +220,7 @@ pub struct Item {
     pub message: String,
     /// Shell command for `command_execution` items.
     pub command: String,
-    /// Combined command output reported by Codex.
+    /// Combined command output reported by the agent.
     pub aggregated_output: String,
     /// Command exit code when available.
     pub exit_code: Option<i32>,
@@ -209,11 +253,11 @@ pub struct ErrorPayload {
 }
 
 /// The typed payload carried by an [`Event`], selected by its [`EventKind`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EventPayload {
     /// Payload for `thread.started`.
     ThreadStarted {
-        /// Codex thread id.
+        /// Agent thread or session id.
         thread_id: String,
     },
     /// Payload for `turn.started` (no fields).
@@ -227,6 +271,8 @@ pub enum EventPayload {
     TurnFailed {
         /// Error describing the failed turn.
         error: ErrorPayload,
+        /// Usage reported before the turn failed.
+        usage: Usage,
     },
     /// Payload for `item.started`.
     ItemStarted(Item),
@@ -238,14 +284,14 @@ pub enum EventPayload {
     Other,
 }
 
-/// One decoded JSONL event from `codex exec`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One decoded agent event.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Event {
-    /// Top-level Codex event type.
+    /// Normalized top-level event type.
     pub kind: EventKind,
     /// Wrapper-assigned run id.
     pub run_id: String,
-    /// Codex thread id once known.
+    /// Agent thread or session id once known.
     pub thread_id: String,
     /// Local time when the line was decoded.
     pub received_at: SystemTime,

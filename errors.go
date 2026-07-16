@@ -13,7 +13,7 @@ var (
 	ErrInvalidRequest = errors.New("codexcw: invalid request")
 )
 
-// ExitError reports a non-zero codex process exit.
+// ExitError reports a non-zero agent process exit.
 type ExitError struct {
 	// Code is the process exit code.
 	Code int
@@ -34,9 +34,9 @@ func (e *ExitError) Error() string {
 		return ""
 	}
 	if e.Err != nil {
-		return fmt.Sprintf("codex exited with code %d: %v", e.Code, e.Err)
+		return fmt.Sprintf("agent exited with code %d: %v", e.Code, e.Err)
 	}
-	return fmt.Sprintf("codex exited with code %d", e.Code)
+	return fmt.Sprintf("agent exited with code %d", e.Code)
 }
 
 // Unwrap returns the wrapped process error.
@@ -47,7 +47,7 @@ func (e *ExitError) Unwrap() error {
 	return e.Err
 }
 
-// DecodeError reports malformed JSONL from codex stdout.
+// DecodeError reports malformed JSONL from an agent.
 type DecodeError struct {
 	// Line is the one-based JSONL line number.
 	Line int
@@ -64,7 +64,7 @@ func (e *DecodeError) Error() string {
 	if e == nil {
 		return ""
 	}
-	return fmt.Sprintf("decode codex JSONL line %d: %v", e.Line, e.Err)
+	return fmt.Sprintf("decode agent JSONL line %d: %v", e.Line, e.Err)
 }
 
 // Unwrap returns the wrapped decode error.
@@ -95,6 +95,26 @@ func (e *CodexError) Error() string {
 	return "codex error event"
 }
 
+// ClaudeError reports a failed turn event from Claude.
+type ClaudeError struct {
+	// Event is the Claude error event.
+	Event Event
+}
+
+// Error formats the Claude error event.
+func (e *ClaudeError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Event.Error != nil && e.Event.Error.Message != "" {
+		return "claude error: " + e.Event.Error.Message
+	}
+	if e.Event.TurnFailed != nil && e.Event.TurnFailed.Error.Message != "" {
+		return "claude turn failed: " + e.Event.TurnFailed.Error.Message
+	}
+	return "claude error event"
+}
+
 // HandlerError wraps an error returned by a Handler.
 type HandlerError struct {
 	// Err is the handler error.
@@ -103,10 +123,13 @@ type HandlerError struct {
 
 // Error formats the handler failure.
 func (e *HandlerError) Error() string {
-	if e == nil || e.Err == nil {
-		return "codex event handler failed"
+	if e == nil {
+		return "agent event handler failed"
 	}
-	return "codex event handler failed: " + e.Err.Error()
+	if e.Err == nil {
+		return "agent event handler failed"
+	}
+	return "agent event handler failed: " + e.Err.Error()
 }
 
 // Unwrap returns the handler error.
@@ -134,5 +157,5 @@ func (e *GroupError) Error() string {
 			failed++
 		}
 	}
-	return fmt.Sprintf("%d codex run(s) failed", failed)
+	return fmt.Sprintf("%d agent run(s) failed", failed)
 }

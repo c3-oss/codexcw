@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	defaultExecutable  = "codex"
 	defaultEventBuffer = 1024
 	defaultStderrLimit = 1 << 20
 	defaultScanMax     = 64 << 20
@@ -24,8 +23,20 @@ const (
 
 var runCounter atomic.Uint64
 
-// Runner starts codex exec processes and decodes their JSONL event streams.
+// Agent identifies the CLI wrapped by a Runner.
+type Agent string
+
+const (
+	// AgentCodex wraps codex exec --json.
+	AgentCodex Agent = "codex"
+
+	// AgentClaude wraps claude -p --output-format stream-json.
+	AgentClaude Agent = "claude"
+)
+
+// Runner starts agent CLI processes and decodes their JSONL event streams.
 type Runner struct {
+	agent           Agent
 	executable      string
 	env             []string
 	eventBuffer     int
@@ -39,7 +50,16 @@ type Runner struct {
 // Option configures a Runner.
 type Option func(*Runner)
 
-// WithExecutable changes the codex executable path. It is the primary test seam.
+// WithAgent selects the wrapped agent CLI. The default is AgentCodex.
+func WithAgent(agent Agent) Option {
+	return func(r *Runner) {
+		if agent != "" {
+			r.agent = agent
+		}
+	}
+}
+
+// WithExecutable changes the agent executable path. It is the primary test seam.
 func WithExecutable(path string) Option {
 	return func(r *Runner) {
 		if path != "" {
@@ -103,7 +123,7 @@ func WithDefaultApproval(policy ApprovalPolicy) Option {
 // New creates a Runner with safe automation defaults.
 func New(opts ...Option) *Runner {
 	r := &Runner{
-		executable:      defaultExecutable,
+		agent:           AgentCodex,
 		eventBuffer:     defaultEventBuffer,
 		stderrLimit:     defaultStderrLimit,
 		scanMaxBytes:    defaultScanMax,
@@ -114,12 +134,15 @@ func New(opts ...Option) *Runner {
 	for _, opt := range opts {
 		opt(r)
 	}
+	if r.executable == "" {
+		r.executable = string(r.agent)
+	}
 	return r
 }
 
-// Handler receives decoded events as they stream from Codex.
+// Handler receives decoded events as they stream from the selected agent.
 type Handler interface {
-	// HandleCodexEvent processes one decoded event.
+	// HandleCodexEvent processes one decoded agent event.
 	HandleCodexEvent(context.Context, Event) error
 }
 
@@ -145,12 +168,12 @@ func WithHandler(handler Handler) RunOption {
 	}
 }
 
-// Result summarizes a completed codex exec invocation.
+// Result summarizes a completed agent invocation.
 type Result struct {
 	// RunID is the wrapper-assigned run id.
 	RunID string
 
-	// ThreadID is the Codex thread id once known.
+	// ThreadID is the selected agent's session or thread id once known.
 	ThreadID string
 
 	// FinalMessage is the last completed agent_message text.
@@ -177,7 +200,7 @@ type sessionOutcome struct {
 	err    error
 }
 
-// Session represents one running codex exec process.
+// Session represents one running agent process.
 type Session struct {
 	// ID is the wrapper-assigned run id.
 	ID string
@@ -197,7 +220,7 @@ func (s *Session) Events() <-chan Event {
 	return s.events
 }
 
-// ThreadID returns the Codex thread id once thread.started has arrived.
+// ThreadID returns the selected agent's id once thread.started has arrived.
 func (s *Session) ThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -230,7 +253,7 @@ func (s *Session) Wait() (*Result, error) {
 	return outcome.result, outcome.err
 }
 
-// Start launches one codex exec process and returns immediately.
+// Start launches one agent process and returns immediately.
 func (r *Runner) Start(ctx context.Context, req Request, opts ...RunOption) (*Session, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -254,10 +277,14 @@ func (r *Runner) Start(ctx context.Context, req Request, opts ...RunOption) (*Se
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
-	// #nosec G204 -- launching the configured Codex executable is the wrapper boundary.
+	// #nosec G204 -- launching the configured agent executable is the wrapper boundary.
 	cmd := exec.CommandContext(runCtx, r.executable, args...)
 	cmd.Stdin = stdin
 	cmd.Env = append(os.Environ(), append(r.env, req.Env...)...)
+	// The claude CLI has no --cd flag; the working directory carries the request dir.
+	if r.agent == AgentClaude && req.Dir != "" {
+		cmd.Dir = req.Dir
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -287,6 +314,28 @@ func (r *Runner) Start(ctx context.Context, req Request, opts ...RunOption) (*Se
 	go r.collect(runCtx, session, cmd, stdout, stderrTail, cleanup, cfg.handler)
 
 	return session, nil
+}
+
+// eventDecoder turns one JSONL line into zero or more decoded events.
+type eventDecoder interface {
+	decode(line []byte, runID, threadID string, now time.Time) ([]Event, error)
+}
+
+type codexEventDecoder struct{}
+
+func (codexEventDecoder) decode(line []byte, runID, threadID string, now time.Time) ([]Event, error) {
+	event, err := decodeEvent(line, runID, threadID, now)
+	if err != nil {
+		return nil, err
+	}
+	return []Event{event}, nil
+}
+
+func (r *Runner) newEventDecoder() eventDecoder {
+	if r.agent == AgentClaude {
+		return newClaudeEventDecoder()
+	}
+	return codexEventDecoder{}
 }
 
 // Run starts one process, drains its event stream, and waits for completion.
@@ -322,53 +371,60 @@ func (r *Runner) collect(
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), r.scanMaxBytes)
 
+	decoder := r.newEventDecoder()
 	line := 0
+scan:
 	for scanner.Scan() {
 		line++
 		raw := bytes.TrimSpace(scanner.Bytes())
 		if len(raw) == 0 {
 			continue
 		}
-		event, err := decodeEvent(raw, session.ID, threadID, r.now())
+		decoded, err := decoder.decode(raw, session.ID, threadID, r.now())
 		if err != nil {
 			runErr = &DecodeError{Line: line, Raw: append([]byte(nil), raw...), Err: err}
 			session.cancel()
 			break
 		}
-		if event.ThreadStarted != nil {
-			threadID = event.ThreadStarted.ThreadID
-			event.ThreadID = threadID
-			session.setThreadID(threadID)
-		}
-		if event.ThreadID == "" {
-			event.ThreadID = threadID
-		}
-		if event.ItemCompleted != nil && event.ItemCompleted.Item.Type == ItemAgentMessage {
-			finalMessage = event.ItemCompleted.Item.Text
-		}
-		if event.TurnCompleted != nil {
-			usage = event.TurnCompleted.Usage
-		}
+		for _, event := range decoded {
+			if event.ThreadStarted != nil {
+				threadID = event.ThreadStarted.ThreadID
+				event.ThreadID = threadID
+				session.setThreadID(threadID)
+			}
+			if event.ThreadID == "" {
+				event.ThreadID = threadID
+			}
+			if event.ItemCompleted != nil && event.ItemCompleted.Item.Type == ItemAgentMessage {
+				finalMessage = event.ItemCompleted.Item.Text
+			}
+			if event.TurnCompleted != nil {
+				usage = event.TurnCompleted.Usage
+			}
+			if event.TurnFailed != nil {
+				usage = event.TurnFailed.Usage
+			}
 
-		eventCopy := event
-		lastEvent = &eventCopy
-		events = append(events, event)
+			eventCopy := event
+			lastEvent = &eventCopy
+			events = append(events, event)
 
-		select {
-		case session.events <- event:
-		case <-ctx.Done():
-			runErr = ctx.Err()
-			session.cancel()
-		}
-		if runErr != nil {
-			break
-		}
-
-		if handler != nil {
-			if err := handler.HandleCodexEvent(ctx, event); err != nil {
-				runErr = &HandlerError{Err: err}
+			select {
+			case session.events <- event:
+			case <-ctx.Done():
+				runErr = ctx.Err()
 				session.cancel()
-				break
+			}
+			if runErr != nil {
+				break scan
+			}
+
+			if handler != nil {
+				if err := handler.HandleCodexEvent(ctx, event); err != nil {
+					runErr = &HandlerError{Err: err}
+					session.cancel()
+					break scan
+				}
 			}
 		}
 	}
@@ -396,7 +452,7 @@ func (r *Runner) collect(
 	}
 
 	if runErr == nil {
-		runErr = classifyCodexEvent(lastEvent)
+		runErr = classifyAgentEvent(r.agent, lastEvent)
 	}
 	if runErr == nil {
 		runErr = classifyProcessError(ctx, waitErr, result.Stderr, lastEvent)
@@ -432,11 +488,14 @@ func classifyProcessError(ctx context.Context, waitErr error, stderr string, las
 	return waitErr
 }
 
-func classifyCodexEvent(lastEvent *Event) error {
+func classifyAgentEvent(agent Agent, lastEvent *Event) error {
 	if lastEvent == nil {
 		return nil
 	}
 	if lastEvent.Error != nil || lastEvent.TurnFailed != nil {
+		if agent == AgentClaude {
+			return &ClaudeError{Event: *lastEvent}
+		}
 		return &CodexError{Event: *lastEvent}
 	}
 	return nil
@@ -447,6 +506,13 @@ func newRunID() string {
 }
 
 func (r *Runner) prepare(req Request) (_ []string, _ io.Reader, cleanup func(), err error) {
+	switch r.agent {
+	case AgentClaude:
+		return r.prepareClaude(req)
+	case AgentCodex:
+	default:
+		return nil, nil, nil, fmt.Errorf("%w: unknown agent: %s", ErrInvalidRequest, r.agent)
+	}
 	if err := validateRequest(req); err != nil {
 		return nil, nil, nil, err
 	}
@@ -497,6 +563,9 @@ func (r *Runner) prepare(req Request) (_ []string, _ io.Reader, cleanup func(), 
 func validateRequest(req Request) error {
 	if req.Prompt == "" && req.Stdin == nil {
 		return ErrPromptRequired
+	}
+	if req.PermissionMode != "" || len(req.AllowedTools) > 0 || len(req.DisallowedTools) > 0 {
+		return fmt.Errorf("%w: permission mode and tool filters require the claude agent", ErrInvalidRequest)
 	}
 	if len(req.OutputSchema) > 0 && req.OutputSchemaPath != "" {
 		return fmt.Errorf("%w: output schema path and inline schema are mutually exclusive", ErrInvalidRequest)

@@ -199,6 +199,59 @@ await runner.run({
 await runner.run({ prompt: '...', model: 'o3', profile: 'work' })
 ```
 
+## Claude Code agent
+
+The runner also wraps Claude Code's non-interactive mode
+(`claude -p --output-format stream-json`). Select it with the `agent` runner
+option; the `claude` executable must be on `PATH` and authenticated. Events
+are normalized into the same event model — `thread.started` carries the
+Claude session id, tool calls become `item.started`/`item.completed` pairs,
+and the final `result` maps to `turn.completed` — with `raw` always keeping
+the original Claude JSON line.
+
+```ts
+import { Runner, ClaudeModel, PermissionMode } from '@c3-oss/codexcw'
+
+const runner = new Runner({ agent: 'claude' })
+
+const result = await runner.run({
+  prompt: 'crie um arquivo TODO.md',
+  model: ClaudeModel.Haiku, // 'haiku', 'sonnet', or 'opus'
+  permissionMode: PermissionMode.AcceptEdits,
+})
+
+console.log('tokens:', result.usage.totalTokens)
+console.log('cache writes:', result.usage.cacheCreationInputTokens)
+console.log('cost (USD):', result.usage.totalCostUsd)
+console.log('per-model usage:', result.usage.modelUsage)
+```
+
+```ts
+// Tool filters and resume work per request:
+await runner.run({
+  prompt: 'rode os testes',
+  model: ClaudeModel.Sonnet,
+  allowedTools: ['Bash(npm test *)', 'Read'],
+  disallowedTools: ['WebSearch'],
+})
+
+const first = await runner.run({ prompt: 'lembre disto', persistent: true })
+await runner.run({
+  prompt: 'continue',
+  resumeId: first.threadId, // or resumeLast: true
+  persistent: true,
+})
+```
+
+Claude runs support `dir` (applied as the process working directory),
+`addDirs`, `outputSchema`/`outputSchemaPath` (passed as `--json-schema`), and
+`dangerouslyBypassSandbox` (passed as `--dangerously-skip-permissions`).
+`permissionMode`, `allowedTools`, and `disallowedTools` are claude-only;
+codex-only fields (`sandbox`, `approval`, `profile`, `config`, `images`,
+feature flags) reject with an `invalidRequest` error on a claude runner.
+`PermissionMode` includes all Claude modes: `AcceptEdits`, `Auto`,
+`BypassPermissions`, `Manual`, `DontAsk`, and `Plan`.
+
 ## Stdin input
 
 ```ts
@@ -247,6 +300,21 @@ if (usage.tokenUsage) {
 `account` and `tokenUsage` are undefined when codex answers those reads with a
 JSON-RPC error; transport errors and timeouts reject the whole call.
 
+Claude account usage is available through the Claude Code `/usage` command:
+
+```ts
+import { getClaudeAccountUsage } from '@c3-oss/codexcw'
+
+const usage = await getClaudeAccountUsage({ timeoutMs: 5000 })
+console.log(usage.report)
+for (const window of usage.windows) {
+  console.log(window.label, window.usedPercent, window.resetsAt)
+}
+```
+
+`raw` keeps the original Claude JSON output, while `windows` contains the
+percentage-based limits parsed from the human-readable report.
+
 ## Error handling
 
 Failures throw a typed `CodexcwError` whose `kind` discriminates the cause.
@@ -261,10 +329,13 @@ try {
   if (err instanceof CodexcwError) {
     switch (err.kind) {
       case 'exit':
-        console.log(`codex exited ${err.code}: ${err.stderr}`)
+        console.log(`agent exited ${err.code}: ${err.stderr}`)
         break
       case 'codex':
         console.log('codex reported:', err.message)
+        break
+      case 'claude':
+        console.log('claude reported:', err.message)
         break
       case 'decode':
         console.log(`bad JSONL on line ${err.line}`)

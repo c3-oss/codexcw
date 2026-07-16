@@ -3,7 +3,7 @@
 use crate::event::{Event, EventPayload};
 use crate::group::GroupResult;
 
-/// An error from a single Codex run.
+/// An error from a single agent run.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     /// A non-resume run was started without prompt or stdin input.
@@ -14,8 +14,8 @@ pub enum Error {
     #[error("codexcw: invalid request: {0}")]
     InvalidRequest(String),
 
-    /// The codex process exited with a non-zero status.
-    #[error("codex exited with code {code}")]
+    /// The agent process exited with a non-zero status.
+    #[error("agent exited with code {code}")]
     Exit {
         /// Process exit code.
         code: i32,
@@ -25,8 +25,8 @@ pub enum Error {
         last_event: Option<Box<Event>>,
     },
 
-    /// The codex process emitted malformed JSONL.
-    #[error("decode codex JSONL line {line}: {message}")]
+    /// The agent process emitted malformed JSONL.
+    #[error("decode agent JSONL line {line}: {message}")]
     Decode {
         /// One-based JSONL line number.
         line: usize,
@@ -45,16 +45,25 @@ pub enum Error {
         event: Box<Event>,
     },
 
+    /// Claude reported a failed result.
+    #[error("{message}")]
+    Claude {
+        /// Formatted Claude error message.
+        message: String,
+        /// The Claude error event.
+        event: Box<Event>,
+    },
+
     /// An event handler returned an error, cancelling the run.
-    #[error("codex event handler failed: {0}")]
+    #[error("agent event handler failed: {0}")]
     Handler(String),
 
     /// The run was cancelled.
-    #[error("codex run cancelled")]
+    #[error("agent run cancelled")]
     Cancelled,
 
-    /// The codex process could not be spawned or its I/O failed.
-    #[error("codex process error: {0}")]
+    /// The agent process could not be spawned or its I/O failed.
+    #[error("agent process error: {0}")]
     Process(String),
 }
 
@@ -69,6 +78,13 @@ impl Error {
             event: Box::new(event.clone()),
         }
     }
+
+    pub(crate) fn claude_from_event(event: &Event) -> Self {
+        Error::Claude {
+            message: claude_message(event),
+            event: Box::new(event.clone()),
+        }
+    }
 }
 
 fn codex_message(event: &Event) -> String {
@@ -76,10 +92,22 @@ fn codex_message(event: &Event) -> String {
         EventPayload::Error(err) if !err.message.is_empty() => {
             format!("codex error: {}", err.message)
         }
-        EventPayload::TurnFailed { error } if !error.message.is_empty() => {
+        EventPayload::TurnFailed { error, .. } if !error.message.is_empty() => {
             format!("codex turn failed: {}", error.message)
         }
         _ => "codex error event".to_string(),
+    }
+}
+
+fn claude_message(event: &Event) -> String {
+    match &event.payload {
+        EventPayload::Error(err) if !err.message.is_empty() => {
+            format!("claude error: {}", err.message)
+        }
+        EventPayload::TurnFailed { error, .. } if !error.message.is_empty() => {
+            format!("claude turn failed: {}", error.message)
+        }
+        _ => "claude error event".to_string(),
     }
 }
 
@@ -93,7 +121,7 @@ pub struct GroupError {
 impl std::fmt::Display for GroupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let failed = self.results.iter().filter(|r| r.error.is_some()).count();
-        write!(f, "{failed} codex run(s) failed")
+        write!(f, "{failed} agent run(s) failed")
     }
 }
 

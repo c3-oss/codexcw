@@ -253,6 +253,66 @@ runner.run(req)
 await runner.run(req)
 ```
 
+## Claude Code agent
+
+The runner also wraps Claude Code's non-interactive mode
+(`claude -p --output-format stream-json`). Select it with the `agent` keyword;
+the `claude` executable must be on `PATH` and authenticated. Events are
+normalized into the same event model — `thread.started` carries the Claude
+session id, tool calls become `item.started`/`item.completed` pairs, and the
+final `result` maps to `turn.completed` — with `raw` always keeping the
+original Claude JSON line.
+
+```python
+import codexcw
+
+runner = codexcw.Runner(agent=codexcw.AGENT_CLAUDE)
+
+result = runner.run(
+    codexcw.Request(
+        prompt="crie um arquivo TODO.md",
+        model=codexcw.CLAUDE_MODEL_HAIKU,  # "haiku", "sonnet", or "opus"
+        permission_mode=codexcw.PERMISSION_ACCEPT_EDITS,
+    )
+)
+
+print("tokens:", result.usage.total_tokens)
+print("cache writes:", result.usage.cache_creation_input_tokens)
+print("cost (USD):", result.usage.total_cost_usd)
+print("per-model usage:", result.usage.model_usage)
+```
+
+```python
+# Tool filters and resume work per request:
+runner.run(
+    codexcw.Request(
+        prompt="rode os testes",
+        model=codexcw.CLAUDE_MODEL_SONNET,
+        allowed_tools=["Bash(pytest *)", "Read"],
+        disallowed_tools=["WebSearch"],
+    )
+)
+
+first = runner.run(codexcw.Request(prompt="lembre disto", persistent=True))
+runner.run(
+    codexcw.Request(
+        prompt="continue",
+        resume_id=first.thread_id,  # or resume_last=True
+        persistent=True,
+    )
+)
+```
+
+Claude runs support `dir` (applied as the process working directory),
+`add_dirs`, `output_schema`/`output_schema_path` (passed as `--json-schema`),
+and `dangerously_bypass_sandbox` (passed as
+`--dangerously-skip-permissions`). `permission_mode`, `allowed_tools`, and
+`disallowed_tools` are claude-only; codex-only fields (`sandbox`, `approval`,
+`profile`, `config`, `images`, feature flags) raise a typed
+`invalidRequest` error on a claude runner.
+The exported permission constants cover `acceptEdits`, `auto`,
+`bypassPermissions`, `manual`, `dontAsk`, and `plan`.
+
 ## Stdin input
 
 ```python
@@ -294,12 +354,31 @@ if usage.token_usage is not None:
 `account` and `token_usage` are `None` when codex answers those reads with a
 JSON-RPC error; transport errors and timeouts fail the whole call.
 
+Claude account usage is available through the Claude Code `/usage` command:
+
+```python
+from codexcw import ClaudeAccountUsageRequest, get_claude_account_usage
+
+usage = get_claude_account_usage(ClaudeAccountUsageRequest(timeout=5.0))
+print(usage.report)
+for window in usage.windows:
+    print(window.label, window.used_percent, window.resets_at)
+```
+
+`raw` keeps the original Claude JSON output, while `windows` contains the
+percentage-based limits parsed from the human-readable report.
+
 ```python
 # Async
 from codexcw import AccountUsageRequest
 from codexcw.aio import get_account_usage
 
 usage = await get_account_usage(AccountUsageRequest(env={"CODEX_HOME": "/tmp/codex-home"}))
+
+from codexcw import ClaudeAccountUsageRequest
+from codexcw.aio import get_claude_account_usage
+
+claude_usage = await get_claude_account_usage(ClaudeAccountUsageRequest(timeout=5.0))
 ```
 
 ## Error handling
@@ -314,9 +393,11 @@ try:
     print(result.final_message)
 except CodexcwError as err:
     if err.kind == "exit":
-        print(f"codex exited {err.code}: {err.stderr}")
+        print(f"agent exited {err.code}: {err.stderr}")
     elif err.kind == "codex":
         print("codex reported:", err)
+    elif err.kind == "claude":
+        print("claude reported:", err)
     elif err.kind == "decode":
         print(f"bad JSONL on line {err.line}")
     elif err.kind == "promptRequired":

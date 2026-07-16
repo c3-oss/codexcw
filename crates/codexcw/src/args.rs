@@ -14,6 +14,8 @@ pub(crate) struct Prepared {
     /// Kept alive so the inline output-schema file exists for the run, then
     /// deleted on drop.
     pub schema_temp: Option<NamedTempFile>,
+    /// Working directory for the child process (claude agent only; codex uses `-C`).
+    pub current_dir: Option<String>,
 }
 
 /// Validates a request and builds its `codex exec` invocation.
@@ -72,12 +74,22 @@ pub(crate) fn prepare(
         args,
         stdin: prompt_bytes(req),
         schema_temp,
+        current_dir: None,
     })
 }
 
 pub(crate) fn validate_request(req: &Request) -> Result<(), Error> {
     if req.prompt.is_empty() && req.stdin.is_none() {
         return Err(Error::PromptRequired);
+    }
+    let permission_mode = req
+        .permission_mode
+        .as_deref()
+        .is_some_and(|m| !m.is_empty());
+    if permission_mode || !req.allowed_tools.is_empty() || !req.disallowed_tools.is_empty() {
+        return Err(Error::invalid(
+            "permission mode and tool filters require the claude agent",
+        ));
     }
     let inline_schema = req.output_schema.as_ref().is_some_and(|s| !s.is_empty());
     let schema_path = req
@@ -206,7 +218,7 @@ fn append_common_args(
     }
 }
 
-fn prompt_bytes(req: &Request) -> Vec<u8> {
+pub(crate) fn prompt_bytes(req: &Request) -> Vec<u8> {
     match (!req.prompt.is_empty(), req.stdin.as_ref()) {
         (true, Some(stdin)) => {
             let mut out = Vec::with_capacity(req.prompt.len() + stdin.len() + 24);
@@ -222,7 +234,7 @@ fn prompt_bytes(req: &Request) -> Vec<u8> {
     }
 }
 
-fn nonempty(value: &Option<String>) -> Option<String> {
+pub(crate) fn nonempty(value: &Option<String>) -> Option<String> {
     value.as_ref().filter(|v| !v.is_empty()).cloned()
 }
 

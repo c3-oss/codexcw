@@ -280,6 +280,76 @@ _, _ = runner.Run(ctx, codexcw.Request{
 })
 ```
 
+## Claude Code agent
+
+The runner also wraps Claude Code's non-interactive mode
+(`claude -p --output-format stream-json`). Select it with `WithAgent`; the
+`claude` executable must be on `PATH` and authenticated. Events are normalized
+into the same `Event` model — `thread.started` carries the Claude session id,
+tool calls become `item.started`/`item.completed` pairs, and the final
+`result` maps to `turn.completed` — with `Raw` always keeping the original
+Claude JSON line.
+
+```go
+runner := codexcw.New(codexcw.WithAgent(codexcw.AgentClaude))
+
+result, err := runner.Run(ctx, codexcw.Request{
+	Prompt:         "crie um arquivo TODO.md",
+	Model:          codexcw.ClaudeModelHaiku, // "haiku", "sonnet", or "opus"
+	PermissionMode: codexcw.PermissionAcceptEdits,
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+fmt.Println("tokens:", result.Usage.TotalTokens)
+fmt.Println("cost USD:", result.Usage.TotalCostUSD)
+```
+
+```go
+// Tool filters, structured output, and resume work per request:
+_, _ = runner.Run(ctx, codexcw.Request{
+	Prompt:          "rode os testes",
+	Model:           codexcw.ClaudeModelSonnet,
+	AllowedTools:    []string{"Bash(go test *)", "Read"},
+	DisallowedTools: []string{"WebSearch"},
+})
+
+first, _ := runner.Run(ctx, codexcw.Request{Prompt: "lembre disto", Persistent: true})
+_, _ = runner.Run(ctx, codexcw.Request{
+	Prompt:     "continue",
+	ResumeID:   first.ThreadID, // or ResumeLast: true
+	Persistent: true,
+})
+```
+
+Claude runs support `Dir` (applied as the process working directory),
+`AddDirs`, `OutputSchema`/`OutputSchemaPath` (passed as `--json-schema`), and
+`DangerouslyBypassSandbox` (passed as `--dangerously-skip-permissions`).
+`PermissionMode`, `AllowedTools`, and `DisallowedTools` are claude-only;
+codex-only fields (`Sandbox`, `Approval`, `Profile`, `Config`, `Images`,
+feature flags) return `ErrInvalidRequest` on a claude runner.
+The permission modes are `PermissionAcceptEdits`, `PermissionAuto`,
+`PermissionBypassPermissions`, `PermissionManual`, `PermissionDontAsk`, and
+`PermissionPlan`. Claude usage includes cache creation, total cost, and
+per-model details in `Usage.ModelUsage`.
+
+Claude account limits are available through the CLI's `/usage` report:
+
+```go
+accountUsage, err := codexcw.GetClaudeAccountUsage(ctx, codexcw.ClaudeAccountUsageRequest{})
+if err != nil {
+	log.Fatal(err)
+}
+for _, window := range accountUsage.Windows {
+	fmt.Printf("%s: %.1f%% used, resets %s\n",
+		window.Label, window.UsedPercent, window.ResetsAt)
+}
+```
+
+`ClaudeAccountUsage.Raw` preserves the complete JSON result and `Report`
+preserves Claude Code's human-readable response.
+
 ## Stdin input
 
 ```go
@@ -345,12 +415,15 @@ result, err := runner.Run(ctx, codexcw.Request{Prompt: "..."})
 if err != nil {
 	var exitErr *codexcw.ExitError
 	var codexErr *codexcw.CodexError
+	var claudeErr *codexcw.ClaudeError
 	var decodeErr *codexcw.DecodeError
 	switch {
 	case errors.As(err, &exitErr):
-		fmt.Printf("codex exited %d: %s\n", exitErr.Code, exitErr.Stderr)
+		fmt.Printf("%s exited %d: %s\n", exitErr.Agent, exitErr.Code, exitErr.Stderr)
 	case errors.As(err, &codexErr):
 		fmt.Println("codex reported an error:", codexErr.Error())
+	case errors.As(err, &claudeErr):
+		fmt.Println("claude reported an error:", claudeErr.Error())
 	case errors.As(err, &decodeErr):
 		fmt.Printf("bad JSONL on line %d\n", decodeErr.Line)
 	case errors.Is(err, codexcw.ErrPromptRequired):

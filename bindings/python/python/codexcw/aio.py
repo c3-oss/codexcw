@@ -19,6 +19,8 @@ from typing import AsyncIterator, Awaitable, Callable, List, Optional, Union
 from . import (
     AccountUsage,
     AccountUsageRequest,
+    ClaudeAccountUsage,
+    ClaudeAccountUsageRequest,
     CodexcwError,
     Event,
     GroupResult,
@@ -30,8 +32,15 @@ from . import Group as _SyncGroup
 from . import Runner as _SyncRunner
 from . import Session as _SyncSession
 from . import get_account_usage as _sync_get_account_usage
+from . import get_claude_account_usage as _sync_get_claude_account_usage
 
-__all__ = ["Runner", "Session", "Group", "get_account_usage"]
+__all__ = [
+    "Runner",
+    "Session",
+    "Group",
+    "get_account_usage",
+    "get_claude_account_usage",
+]
 
 _Sentinel = object()
 
@@ -51,7 +60,7 @@ class _AsyncEvents:
 
 
 class Session:
-    """A running ``codex exec`` process with async iteration."""
+    """A running selected-agent process with async iteration."""
 
     def __init__(self, sync_session: _SyncSession) -> None:
         self._sync = sync_session
@@ -74,7 +83,7 @@ class Session:
 
 
 class Group:
-    """A batch of running ``codex exec`` processes with async iteration."""
+    """A batch of running selected-agent processes with async iteration."""
 
     def __init__(self, sync_group: _SyncGroup) -> None:
         self._sync = sync_group
@@ -93,6 +102,14 @@ async def get_account_usage(req: Optional[AccountUsageRequest] = None) -> Accoun
     """Reads Codex account usage and limits through ``codex app-server``."""
 
     return await asyncio.to_thread(_sync_get_account_usage, req)
+
+
+async def get_claude_account_usage(
+    req: Optional[ClaudeAccountUsageRequest] = None,
+) -> ClaudeAccountUsage:
+    """Reads Claude account usage through the Claude Code ``/usage`` command."""
+
+    return await asyncio.to_thread(_sync_get_claude_account_usage, req)
 
 
 class Runner:

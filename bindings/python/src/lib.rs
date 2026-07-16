@@ -15,15 +15,19 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
 use codexcw::{
-    get_account_usage as core_get_account_usage, AccountCredits as CoreAccountCredits,
-    AccountRateLimitWindow as CoreAccountRateLimitWindow,
+    get_account_usage as core_get_account_usage,
+    get_claude_account_usage as core_get_claude_account_usage,
+    AccountCredits as CoreAccountCredits, AccountRateLimitWindow as CoreAccountRateLimitWindow,
     AccountRateLimits as CoreAccountRateLimits, AccountSpendLimit as CoreAccountSpendLimit,
     AccountTokenUsage as CoreAccountTokenUsage,
     AccountTokenUsageDailyBucket as CoreAccountTokenUsageDailyBucket,
     AccountTokenUsageSummary as CoreAccountTokenUsageSummary, AccountUsage as CoreAccountUsage,
     AccountUsageAccount as CoreAccountUsageAccount, AccountUsageRequest as CoreAccountUsageRequest,
-    ApprovalPolicy, ConfigOverride, Event, EventPayload, Item, ManyOptions, Request, RunResult,
-    Runner as CoreRunner, SandboxMode, Usage,
+    ApprovalPolicy, ClaudeAccountUsage as CoreClaudeAccountUsage,
+    ClaudeAccountUsageRequest as CoreClaudeAccountUsageRequest,
+    ClaudeAccountUsageWindow as CoreClaudeAccountUsageWindow, ConfigOverride, Event, EventPayload,
+    Item, ManyOptions, ModelUsage as CoreModelUsage, Request, RunResult, Runner as CoreRunner,
+    SandboxMode, Usage,
 };
 
 fn runtime() -> &'static Runtime {
@@ -40,7 +44,29 @@ fn runtime() -> &'static Runtime {
 // Output value types.
 // ---------------------------------------------------------------------------
 
-/// Token usage reported by Codex.
+/// Per-model usage reported by an agent.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyModelUsage {
+    #[pyo3(get)]
+    input_tokens: i64,
+    #[pyo3(get)]
+    output_tokens: i64,
+    #[pyo3(get)]
+    cache_read_input_tokens: i64,
+    #[pyo3(get)]
+    cache_creation_input_tokens: i64,
+    #[pyo3(get)]
+    web_search_requests: i64,
+    #[pyo3(get)]
+    cost_usd: f64,
+    #[pyo3(get)]
+    context_window: i64,
+    #[pyo3(get)]
+    max_output_tokens: i64,
+}
+
+/// Token usage reported by an agent.
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone, Default)]
 pub struct PyUsage {
@@ -49,11 +75,17 @@ pub struct PyUsage {
     #[pyo3(get)]
     cached_input_tokens: i64,
     #[pyo3(get)]
+    cache_creation_input_tokens: i64,
+    #[pyo3(get)]
     output_tokens: i64,
     #[pyo3(get)]
     reasoning_output_tokens: i64,
     #[pyo3(get)]
     total_tokens: i64,
+    #[pyo3(get)]
+    total_cost_usd: f64,
+    #[pyo3(get)]
+    model_usage: HashMap<String, PyModelUsage>,
 }
 
 /// One file edit inside a `file_change` item.
@@ -66,7 +98,7 @@ pub struct PyFileChange {
     kind: String,
 }
 
-/// A typed projection of a Codex item.
+/// A typed projection of an agent item.
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
 pub struct PyItem {
@@ -92,7 +124,7 @@ pub struct PyItem {
     changes: Vec<PyFileChange>,
 }
 
-/// One decoded Codex event.
+/// One decoded agent event.
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
 pub struct PyEvent {
@@ -300,6 +332,40 @@ pub struct PyAccountUsageOutcome {
     error: Option<PyError>,
 }
 
+/// One Claude usage window.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyClaudeAccountUsageWindow {
+    #[pyo3(get)]
+    label: String,
+    #[pyo3(get)]
+    used_percent: f64,
+    #[pyo3(get)]
+    resets_at: String,
+}
+
+/// Claude account usage report.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyClaudeAccountUsage {
+    #[pyo3(get)]
+    report: String,
+    #[pyo3(get)]
+    windows: Vec<PyClaudeAccountUsageWindow>,
+    #[pyo3(get)]
+    raw: String,
+}
+
+/// Claude account usage paired with any terminal error.
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyClaudeAccountUsageOutcome {
+    #[pyo3(get)]
+    result: Option<PyClaudeAccountUsage>,
+    #[pyo3(get)]
+    error: Option<PyError>,
+}
+
 /// One multiplexed event from `run_many`.
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
@@ -347,6 +413,9 @@ struct ReqData {
     profile: Option<String>,
     sandbox: Option<String>,
     approval: Option<String>,
+    permission_mode: Option<String>,
+    allowed_tools: Option<Vec<String>>,
+    disallowed_tools: Option<Vec<String>>,
     config: Option<Vec<ConfigData>>,
     enable: Option<Vec<String>>,
     disable: Option<Vec<String>>,
@@ -386,6 +455,9 @@ impl ReqData {
             profile: self.profile,
             sandbox,
             approval,
+            permission_mode: self.permission_mode,
+            allowed_tools: self.allowed_tools.unwrap_or_default(),
+            disallowed_tools: self.disallowed_tools.unwrap_or_default(),
             config: self
                 .config
                 .unwrap_or_default()
@@ -417,6 +489,29 @@ struct AccountUsageReqData {
     executable: Option<String>,
     env: Option<HashMap<String, String>>,
     timeout: Option<f64>,
+}
+
+#[derive(FromPyObject)]
+struct ClaudeAccountUsageReqData {
+    executable: Option<String>,
+    env: Option<HashMap<String, String>>,
+    timeout: Option<f64>,
+}
+
+impl ClaudeAccountUsageReqData {
+    fn into_core(self) -> Result<CoreClaudeAccountUsageRequest, PyError> {
+        let timeout = match self.timeout {
+            Some(value) => Some(Duration::try_from_secs_f64(value).map_err(|_| {
+                invalid_request("timeout must be a finite non-negative number".to_string())
+            })?),
+            None => None,
+        };
+        Ok(CoreClaudeAccountUsageRequest {
+            executable: self.executable,
+            env: self.env.unwrap_or_default().into_iter().collect(),
+            timeout,
+        })
+    }
 }
 
 impl AccountUsageReqData {
@@ -467,6 +562,14 @@ fn invalid_request(message: String) -> PyError {
     }
 }
 
+fn parse_agent(value: &str) -> Result<codexcw::Agent, PyError> {
+    match value {
+        "codex" => Ok(codexcw::Agent::Codex),
+        "claude" => Ok(codexcw::Agent::Claude),
+        other => Err(invalid_request(format!("unknown agent: {other}"))),
+    }
+}
+
 fn parse_account_usage_timeout(timeout: f64) -> Result<Duration, PyError> {
     Duration::try_from_secs_f64(timeout).map_err(|_| {
         invalid_request(
@@ -480,9 +583,29 @@ fn to_py_usage(usage: &Usage) -> PyUsage {
     PyUsage {
         input_tokens: usage.input_tokens,
         cached_input_tokens: usage.cached_input_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
         output_tokens: usage.output_tokens,
         reasoning_output_tokens: usage.reasoning_output_tokens,
         total_tokens: usage.total_tokens,
+        total_cost_usd: usage.total_cost_usd,
+        model_usage: usage
+            .model_usage
+            .iter()
+            .map(|(model, usage)| (model.clone(), to_py_model_usage(usage)))
+            .collect(),
+    }
+}
+
+fn to_py_model_usage(usage: &CoreModelUsage) -> PyModelUsage {
+    PyModelUsage {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        web_search_requests: usage.web_search_requests,
+        cost_usd: usage.cost_usd,
+        context_window: usage.context_window,
+        max_output_tokens: usage.max_output_tokens,
     }
 }
 
@@ -515,7 +638,10 @@ fn to_py_event(event: &Event) -> PyEvent {
     match &event.payload {
         EventPayload::ItemStarted(i) | EventPayload::ItemCompleted(i) => item = Some(to_py_item(i)),
         EventPayload::TurnCompleted { usage: u } => usage = Some(to_py_usage(u)),
-        EventPayload::TurnFailed { error: e } => error = Some(e.message.clone()),
+        EventPayload::TurnFailed { error: e, usage: u } => {
+            error = Some(e.message.clone());
+            usage = Some(to_py_usage(u));
+        }
         EventPayload::Error(e) => error = Some(e.message.clone()),
         _ => {}
     }
@@ -570,6 +696,13 @@ fn to_py_error(error: &codexcw::Error) -> PyError {
         },
         Codex { .. } => PyError {
             kind: "codex".to_string(),
+            message: error.to_string(),
+            code: None,
+            stderr: None,
+            line: None,
+        },
+        Claude { .. } => PyError {
+            kind: "claude".to_string(),
             message: error.to_string(),
             code: None,
             stderr: None,
@@ -697,6 +830,28 @@ fn to_py_account_usage(usage: &CoreAccountUsage) -> PyAccountUsage {
     }
 }
 
+fn to_py_claude_account_usage_window(
+    window: &CoreClaudeAccountUsageWindow,
+) -> PyClaudeAccountUsageWindow {
+    PyClaudeAccountUsageWindow {
+        label: window.label.clone(),
+        used_percent: window.used_percent,
+        resets_at: window.resets_at.clone(),
+    }
+}
+
+fn to_py_claude_account_usage(usage: &CoreClaudeAccountUsage) -> PyClaudeAccountUsage {
+    PyClaudeAccountUsage {
+        report: usage.report.clone(),
+        windows: usage
+            .windows
+            .iter()
+            .map(to_py_claude_account_usage_window)
+            .collect(),
+        raw: usage.raw.clone(),
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (req=None))]
 fn get_account_usage(py: Python<'_>, req: Option<AccountUsageReqData>) -> PyAccountUsageOutcome {
@@ -722,6 +877,34 @@ fn get_account_usage(py: Python<'_>, req: Option<AccountUsageReqData>) -> PyAcco
     }
 }
 
+#[pyfunction]
+#[pyo3(signature = (req=None))]
+fn get_claude_account_usage(
+    py: Python<'_>,
+    req: Option<ClaudeAccountUsageReqData>,
+) -> PyClaudeAccountUsageOutcome {
+    let core_req = match req.map(ClaudeAccountUsageReqData::into_core).transpose() {
+        Ok(req) => req.unwrap_or_default(),
+        Err(error) => {
+            return PyClaudeAccountUsageOutcome {
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
+    let result = py.detach(|| runtime().block_on(core_get_claude_account_usage(core_req)));
+    match result {
+        Ok(usage) => PyClaudeAccountUsageOutcome {
+            result: Some(to_py_claude_account_usage(&usage)),
+            error: None,
+        },
+        Err(error) => PyClaudeAccountUsageOutcome {
+            result: None,
+            error: Some(to_py_error(&error)),
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Session.
 // ---------------------------------------------------------------------------
@@ -736,7 +919,7 @@ enum SessionInner {
     Failed(PyError),
 }
 
-/// A running `codex exec` process. Iterate it for events; call `wait()` for the
+/// A running selected-agent process. Iterate it for events; call `wait()` for the
 /// final outcome.
 #[pyclass]
 pub struct Session {
@@ -812,7 +995,7 @@ impl Session {
         }
     }
 
-    /// The Codex thread id once known.
+    /// The agent thread or session id once known.
     fn thread_id(&self) -> String {
         match &self.inner {
             SessionInner::Failed(_) => String::new(),
@@ -840,7 +1023,7 @@ struct LiveGroup {
     total: usize,
 }
 
-/// A batch of running `codex exec` processes.
+/// A batch of running selected-agent processes.
 #[pyclass]
 pub struct Group {
     inner: LiveGroup,
@@ -929,7 +1112,7 @@ impl Group {
 // Runner.
 // ---------------------------------------------------------------------------
 
-/// Starts `codex exec` processes with safe automation defaults.
+/// Starts selected-agent processes with safe automation defaults.
 #[pyclass]
 pub struct Runner {
     core: CoreRunner,
@@ -946,6 +1129,7 @@ impl Runner {
         scan_max_bytes=None,
         default_sandbox=None,
         default_approval=None,
+        agent=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -956,8 +1140,14 @@ impl Runner {
         scan_max_bytes: Option<u32>,
         default_sandbox: Option<String>,
         default_approval: Option<String>,
-    ) -> Self {
+        agent: Option<String>,
+    ) -> PyResult<Self> {
         let mut builder = CoreRunner::builder();
+        if let Some(value) = agent {
+            let agent = parse_agent(&value)
+                .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.message))?;
+            builder = builder.agent(agent);
+        }
         if let Some(executable) = executable {
             builder = builder.executable(executable);
         }
@@ -981,9 +1171,9 @@ impl Runner {
             builder =
                 builder.default_approval(parse_approval(&value).unwrap_or(ApprovalPolicy::Never));
         }
-        Runner {
+        Ok(Runner {
             core: builder.build(),
-        }
+        })
     }
 
     /// Runs one process to completion and returns its outcome.
@@ -1073,6 +1263,7 @@ fn _codexcw(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Group>()?;
     m.add_class::<PyEvent>()?;
     m.add_class::<PyItem>()?;
+    m.add_class::<PyModelUsage>()?;
     m.add_class::<PyUsage>()?;
     m.add_class::<PyFileChange>()?;
     m.add_class::<PyRunResult>()?;
@@ -1088,8 +1279,12 @@ fn _codexcw(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAccountTokenUsageSummary>()?;
     m.add_class::<PyAccountTokenUsageDailyBucket>()?;
     m.add_class::<PyAccountUsageOutcome>()?;
+    m.add_class::<PyClaudeAccountUsage>()?;
+    m.add_class::<PyClaudeAccountUsageWindow>()?;
+    m.add_class::<PyClaudeAccountUsageOutcome>()?;
     m.add_class::<PyRunEvent>()?;
     m.add_class::<PyGroupResult>()?;
     m.add_function(wrap_pyfunction!(get_account_usage, m)?)?;
+    m.add_function(wrap_pyfunction!(get_claude_account_usage, m)?)?;
     Ok(())
 }

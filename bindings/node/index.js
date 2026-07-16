@@ -5,7 +5,24 @@
 
 const native = require('./binding.js')
 
-/** A typed Codex run error. */
+/** Model aliases accepted by the claude agent's `model` field. */
+const ClaudeModel = Object.freeze({
+  Haiku: 'haiku',
+  Sonnet: 'sonnet',
+  Opus: 'opus',
+})
+
+/** Permission modes accepted by the claude agent's `permissionMode` field. */
+const PermissionMode = Object.freeze({
+  AcceptEdits: 'acceptEdits',
+  Auto: 'auto',
+  BypassPermissions: 'bypassPermissions',
+  Manual: 'manual',
+  Plan: 'plan',
+  DontAsk: 'dontAsk',
+})
+
+/** A typed agent run error. */
 class CodexcwError extends Error {
   constructor(info) {
     super(info.message)
@@ -26,7 +43,7 @@ async function* drain(inner) {
   }
 }
 
-/** A running `codex exec` process. */
+/** A running selected-agent process. */
 class Session {
   constructor(inner) {
     this._inner = inner
@@ -55,7 +72,7 @@ class Session {
   }
 }
 
-/** A batch of running `codex exec` processes. */
+/** A batch of running selected-agent processes. */
 class Group {
   constructor(inner) {
     this._inner = inner
@@ -80,9 +97,15 @@ class Group {
   }
 }
 
-/** Starts `codex exec` processes with safe automation defaults. */
+/** Starts selected-agent processes with safe automation defaults. */
 class Runner {
   constructor(options) {
+    if (options?.agent != null && options.agent !== 'codex' && options.agent !== 'claude') {
+      throw new CodexcwError({
+        kind: 'invalidRequest',
+        message: `unknown agent: ${options.agent}`,
+      })
+    }
     this._inner = new native.Runner(options)
   }
 
@@ -127,4 +150,26 @@ async function getAccountUsage(req) {
   return outcome.result
 }
 
-module.exports = { Runner, Session, Group, CodexcwError, getAccountUsage }
+/** Reads Claude account usage through the Claude Code `/usage` command. */
+async function getClaudeAccountUsage(req) {
+  const outcome = await native.getClaudeAccountUsageRaw(req ?? null)
+  if (outcome.error) throw new CodexcwError(outcome.error)
+  if (!outcome.result) {
+    throw new CodexcwError({
+      kind: 'process',
+      message: 'Claude account usage result missing',
+    })
+  }
+  return outcome.result
+}
+
+module.exports = {
+  Runner,
+  Session,
+  Group,
+  CodexcwError,
+  getAccountUsage,
+  getClaudeAccountUsage,
+  ClaudeModel,
+  PermissionMode,
+}

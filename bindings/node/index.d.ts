@@ -1,10 +1,39 @@
 // Public TypeScript API for @c3-oss/codexcw.
 
-/** Sandbox policy passed to `codex exec`. */
+/** The CLI wrapped by a {@link Runner}. */
+export type Agent = 'codex' | 'claude'
+
+/** Sandbox policy passed to `codex exec` (codex agent only). */
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
-/** Approval policy passed to Codex. */
+/** Approval policy passed to Codex (codex agent only). */
 export type ApprovalPolicy = 'untrusted' | 'on-request' | 'never'
+
+/** Permission mode passed to Claude (claude agent only). */
+export type PermissionModeValue =
+  | 'acceptEdits'
+  | 'auto'
+  | 'bypassPermissions'
+  | 'manual'
+  | 'plan'
+  | 'dontAsk'
+
+/** Model aliases accepted by the claude agent's `model` field. */
+export declare const ClaudeModel: {
+  readonly Haiku: 'haiku'
+  readonly Sonnet: 'sonnet'
+  readonly Opus: 'opus'
+}
+
+/** Permission modes accepted by the claude agent's `permissionMode` field. */
+export declare const PermissionMode: {
+  readonly AcceptEdits: 'acceptEdits'
+  readonly Auto: 'auto'
+  readonly BypassPermissions: 'bypassPermissions'
+  readonly Manual: 'manual'
+  readonly Plan: 'plan'
+  readonly DontAsk: 'dontAsk'
+}
 
 /** One `-c key=value` config override. */
 export interface ConfigOverride {
@@ -12,13 +41,28 @@ export interface ConfigOverride {
   value: string
 }
 
-/** Token usage reported by Codex. */
+/** Per-model usage reported by an agent. */
+export interface ModelUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  webSearchRequests: number
+  costUsd: number
+  contextWindow: number
+  maxOutputTokens: number
+}
+
+/** Token usage reported by an agent. */
 export interface Usage {
   inputTokens: number
   cachedInputTokens: number
+  cacheCreationInputTokens: number
   outputTokens: number
   reasoningOutputTokens: number
   totalTokens: number
+  totalCostUsd: number
+  modelUsage: Record<string, ModelUsage>
 }
 
 /** Options for reading Codex account usage. */
@@ -27,6 +71,29 @@ export interface AccountUsageRequest {
   env?: Record<string, string>
   /** Per-request JSON-RPC timeout in milliseconds. Defaults to 10 seconds. */
   timeoutMs?: number
+}
+
+/** Options for reading Claude account usage. */
+export interface ClaudeAccountUsageRequest {
+  executable?: string
+  env?: Record<string, string>
+  /** Timeout in milliseconds. Defaults to 10 seconds. */
+  timeoutMs?: number
+}
+
+/** One Claude usage window. */
+export interface ClaudeAccountUsageWindow {
+  label: string
+  usedPercent: number
+  resetsAt: string
+}
+
+/** Claude account usage reported by the `/usage` command. */
+export interface ClaudeAccountUsage {
+  report: string
+  windows: ClaudeAccountUsageWindow[]
+  /** Original Claude JSON output. */
+  raw: string
 }
 
 /** Codex account limits and credits. */
@@ -109,7 +176,7 @@ export interface FileChange {
   kind: string
 }
 
-/** A typed projection of a Codex item. */
+/** A typed projection of an agent item. */
 export interface Item {
   id: string
   type: string
@@ -123,7 +190,7 @@ export interface Item {
   changes: FileChange[]
 }
 
-/** One decoded Codex event. */
+/** One decoded agent event. */
 export interface CodexEvent {
   type: string
   runId: string
@@ -150,7 +217,7 @@ export interface RunResult {
   finishedAtMs: number
 }
 
-/** A Codex run request. All fields are optional except prompt or stdin. */
+/** An agent run request. All fields are optional except prompt or stdin. */
 export interface Request {
   prompt?: string
   stdin?: string
@@ -161,6 +228,12 @@ export interface Request {
   profile?: string
   sandbox?: SandboxMode
   approval?: ApprovalPolicy
+  /** Claude permission mode (claude agent only). */
+  permissionMode?: PermissionModeValue
+  /** Tool patterns Claude may use without prompting (claude agent only). */
+  allowedTools?: string[]
+  /** Tool patterns denied to Claude (claude agent only). */
+  disallowedTools?: string[]
   config?: ConfigOverride[]
   enable?: string[]
   disable?: string[]
@@ -182,6 +255,8 @@ export interface Request {
 
 /** Options for constructing a {@link Runner}. */
 export interface RunnerOptions {
+  /** Which agent CLI to wrap. Defaults to `codex`. */
+  agent?: Agent
   executable?: string
   env?: Record<string, string>
   eventBuffer?: number
@@ -219,11 +294,12 @@ export type ErrorKind =
   | 'exit'
   | 'decode'
   | 'codex'
+  | 'claude'
   | 'handler'
   | 'cancelled'
   | 'process'
 
-/** A typed Codex run error. */
+/** A typed agent run error. */
 export declare class CodexcwError extends Error {
   kind: ErrorKind
   /** Process exit code, for `exit` errors. */
@@ -234,7 +310,7 @@ export declare class CodexcwError extends Error {
   line?: number
 }
 
-/** A running `codex exec` process. */
+/** A running selected-agent process. */
 export declare class Session {
   readonly id: string
   threadId(): string
@@ -245,7 +321,7 @@ export declare class Session {
   wait(): Promise<RunResult>
 }
 
-/** A batch of running `codex exec` processes. */
+/** A batch of running selected-agent processes. */
 export declare class Group {
   cancel(): void
   /** Streams multiplexed events until every run finishes. */
@@ -253,7 +329,7 @@ export declare class Group {
   wait(): Promise<GroupResult[]>
 }
 
-/** Starts `codex exec` processes with safe automation defaults. */
+/** Starts selected-agent processes with safe automation defaults. */
 export declare class Runner {
   constructor(options?: RunnerOptions)
   /** Launches one process and returns a {@link Session}. */
@@ -274,3 +350,8 @@ export declare class Runner {
 export declare function getAccountUsage(
   req?: AccountUsageRequest,
 ): Promise<AccountUsage>
+
+/** Reads Claude account usage through the Claude Code `/usage` command. */
+export declare function getClaudeAccountUsage(
+  req?: ClaudeAccountUsageRequest,
+): Promise<ClaudeAccountUsage>

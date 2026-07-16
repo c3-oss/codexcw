@@ -506,7 +506,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 
 	var groupErr *GroupError
 	require.True(t, errors.As(err, &groupErr))
-	assert.Contains(t, groupErr.Error(), "1 codex run(s) failed")
+	assert.Contains(t, groupErr.Error(), "1 agent run(s) failed")
 	assert.ErrorIs(t, results[1].Err, ErrPromptRequired)
 }
 
@@ -534,7 +534,7 @@ func TestOptionsAndErrorFormatting(t *testing.T) {
 	assert.Equal(t, "", (*ExitError)(nil).Error())
 	assert.Equal(t, "", (*DecodeError)(nil).Error())
 	assert.Equal(t, "", (*CodexError)(nil).Error())
-	assert.Equal(t, "codex event handler failed", (&HandlerError{}).Error())
+	assert.Equal(t, "agent event handler failed", (&HandlerError{}).Error())
 	assert.Equal(t, "", (*GroupError)(nil).Error())
 }
 

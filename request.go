@@ -47,9 +47,9 @@ func (c ConfigOverride) String() string {
 	return c.Key + "=" + c.Value
 }
 
-// Request describes one codex exec invocation.
+// Request describes one selected-agent invocation.
 type Request struct {
-	// Prompt is the user instruction sent to Codex.
+	// Prompt is the user instruction sent to the selected agent.
 	Prompt string
 
 	// Stdin is additional prompt input when Prompt is empty or extra context
@@ -59,23 +59,33 @@ type Request struct {
 	// Dir is passed to codex exec as --cd.
 	Dir string
 
-	// AddDirs grants Codex access to additional directories.
+	// AddDirs grants the selected agent access to additional directories.
 	AddDirs []string
 
 	// Images are attached to the initial Codex prompt.
 	Images []string
 
-	// Model overrides the Codex model for this run.
+	// Model overrides the selected agent's model for this run.
 	Model string
 
 	// Profile selects a Codex config profile.
 	Profile string
 
-	// Sandbox controls the Codex sandbox policy.
+	// Sandbox controls the Codex sandbox policy (codex agent only).
 	Sandbox SandboxMode
 
-	// Approval controls the Codex approval policy through -c.
+	// Approval controls the Codex approval policy through -c (codex agent only).
 	Approval ApprovalPolicy
+
+	// PermissionMode controls the Claude permission mode (claude agent only).
+	PermissionMode PermissionMode
+
+	// AllowedTools lists tool patterns Claude may use without prompting
+	// (claude agent only).
+	AllowedTools []string
+
+	// DisallowedTools lists tool patterns denied to Claude (claude agent only).
+	DisallowedTools []string
 
 	// Config contains raw Codex -c config overrides.
 	Config []ConfigOverride
@@ -89,7 +99,7 @@ type Request struct {
 	// StrictConfig makes Codex reject unrecognized config fields.
 	StrictConfig bool
 
-	// Persistent keeps Codex rollout files on disk.
+	// Persistent keeps the selected agent's session data on disk.
 	Persistent bool
 
 	// IgnoreUserConfig skips CODEX_HOME/config.toml.
@@ -116,13 +126,13 @@ type Request struct {
 	// DangerouslyBypassHooks runs enabled hooks without persisted trust.
 	DangerouslyBypassHooks bool
 
-	// Env appends environment variables for the Codex child process.
+	// Env appends environment variables for the selected agent process.
 	Env []string
 
-	// ResumeID resumes a specific Codex thread id.
+	// ResumeID resumes a specific agent session or thread id.
 	ResumeID string
 
-	// ResumeLast resumes the most recent Codex thread.
+	// ResumeLast resumes the selected agent's most recent session.
 	ResumeLast bool
 
 	// ResumeAll disables Codex's cwd filtering while resuming.
