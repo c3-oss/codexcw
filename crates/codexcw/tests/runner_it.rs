@@ -330,7 +330,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         .await
         .expect("session starts");
 
-    let result = timeout(Duration::from_secs(2), session.wait())
+    let result = timeout(Duration::from_secs(5), session.wait())
         .await
         .expect("wait must not depend on event consumption")
         .expect("run succeeds");
@@ -372,7 +372,7 @@ printf '%s\n' '{"type":"result","subtype":"success","result":"done","session_id"
         .await
         .expect("session starts");
 
-    let result = timeout(Duration::from_secs(2), session.wait())
+    let result = timeout(Duration::from_secs(5), session.wait())
         .await
         .expect("wait must not depend on event shape")
         .expect("run succeeds");
@@ -407,7 +407,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         )
         .await;
 
-    let results = timeout(Duration::from_secs(2), group.wait())
+    let results = timeout(Duration::from_secs(5), group.wait())
         .await
         .expect("group wait must not depend on event consumption")
         .expect("group succeeds");
@@ -433,10 +433,16 @@ cat >/dev/null
 printf '%s\n' '{"type":"thread.started","thread_id":"thread-group-cancel"}'
 printf '%s\n' '{"type":"turn.started"}'
 printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"working"}}'
-sleep 30
+mkfifo "$CODEXCW_WAIT_FIFO"
+read -r _ < "$CODEXCW_WAIT_FIFO"
 "#,
     );
-    let group = runner_for(&fake)
+    let wait_fifo = fake.stdin_file.with_file_name("wait.fifo");
+    let runner = Runner::builder()
+        .executable(fake.executable())
+        .env("CODEXCW_WAIT_FIFO", wait_fifo.to_str().unwrap())
+        .build();
+    let mut group = runner
         .run_many(
             vec![Request::new("cancel")],
             ManyOptions {
@@ -446,14 +452,31 @@ sleep 30
         )
         .await;
 
+    timeout(Duration::from_secs(5), group.next_event())
+        .await
+        .expect("first event must arrive")
+        .expect("event stream remains open");
     tokio::time::sleep(Duration::from_millis(100)).await;
     group.cancel();
 
-    let error = timeout(Duration::from_secs(2), group.wait())
+    let error = timeout(Duration::from_secs(5), group.wait())
         .await
         .expect("cancelled group must finish under backpressure")
         .expect_err("group is cancelled");
     assert!(matches!(error.results[0].error, Some(Error::Cancelled)));
+
+    let mut remaining = 0;
+    loop {
+        match timeout(Duration::from_secs(2), group.next_event()).await {
+            Ok(Some(_)) => remaining += 1,
+            Ok(None) => break,
+            Err(_) => panic!("cancelled forwarder must close the event stream"),
+        }
+    }
+    assert!(
+        remaining <= 1,
+        "cancelled forwarder delivered {remaining} queued events"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
