@@ -7,6 +7,7 @@ mod common;
 
 use codexcw::{handler, Error, EventKind, EventPayload, ManyOptions, Request, RunOptions, Runner};
 use common::{read_args, write_fake_codex};
+use tokio::time::{timeout, Duration};
 
 fn runner_for(fake: &common::FakeCodex) -> Runner {
     Runner::builder()
@@ -307,4 +308,243 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         .find(|r| r.index == 1)
         .expect("second result");
     assert!(matches!(failed.error, Some(Error::PromptRequired)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_wait_completes_when_event_buffer_fills() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-buffer"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+"#,
+    );
+    let runner = Runner::builder()
+        .executable(fake.executable())
+        .event_buffer(1)
+        .build();
+    let mut session = runner
+        .start(Request::new("buffer"))
+        .await
+        .expect("session starts");
+
+    let result = timeout(Duration::from_secs(5), session.wait())
+        .await
+        .expect("wait must not depend on event consumption")
+        .expect("run succeeds");
+
+    assert_eq!(result.events.len(), 4);
+    assert_eq!(result.final_message, "done");
+
+    let mut streamed = Vec::new();
+    while let Some(event) = session.next_event().await {
+        streamed.push(event.kind);
+    }
+    assert_eq!(
+        streamed,
+        [
+            EventKind::ThreadStarted,
+            EventKind::TurnStarted,
+            EventKind::ItemCompleted,
+            EventKind::TurnCompleted,
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_wait_handles_claude_shaped_events_without_consumption() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"session-buffer"}'
+printf '%s\n' '{"type":"rate_limit_event","session_id":"session-buffer"}'
+printf '%s\n' '{"type":"result","subtype":"success","result":"done","session_id":"session-buffer"}'
+"#,
+    );
+    let runner = Runner::builder()
+        .executable(fake.executable())
+        .event_buffer(1)
+        .build();
+    let session = runner
+        .start(Request::new("buffer"))
+        .await
+        .expect("session starts");
+
+    let result = timeout(Duration::from_secs(5), session.wait())
+        .await
+        .expect("wait must not depend on event shape")
+        .expect("run succeeds");
+    let kinds: Vec<&str> = result
+        .events
+        .iter()
+        .map(|event| event.kind.as_str())
+        .collect();
+
+    assert_eq!(kinds, ["system", "rate_limit_event", "result"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn group_wait_completes_when_event_buffer_fills() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-group-buffer"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+"#,
+    );
+    let mut group = runner_for(&fake)
+        .run_many(
+            vec![Request::new("a"), Request::new("b")],
+            ManyOptions {
+                max_concurrent: 2,
+                event_buffer: Some(1),
+                ..Default::default()
+            },
+        )
+        .await;
+
+    let results = timeout(Duration::from_secs(5), group.wait())
+        .await
+        .expect("group wait must not depend on event consumption")
+        .expect("group succeeds");
+
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|result| result
+        .result
+        .as_ref()
+        .is_some_and(|report| report.events.len() == 4)));
+
+    let mut event_count = 0;
+    while group.next_event().await.is_some() {
+        event_count += 1;
+    }
+    assert_eq!(event_count, 8);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_cancel_releases_forwarding_blocked_by_backpressure() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-group-cancel"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"working"}}'
+mkfifo "$CODEXCW_WAIT_FIFO"
+read -r _ < "$CODEXCW_WAIT_FIFO"
+"#,
+    );
+    let wait_fifo = fake.stdin_file.with_file_name("wait.fifo");
+    let runner = Runner::builder()
+        .executable(fake.executable())
+        .env("CODEXCW_WAIT_FIFO", wait_fifo.to_str().unwrap())
+        .build();
+    let mut group = runner
+        .run_many(
+            vec![Request::new("cancel")],
+            ManyOptions {
+                event_buffer: Some(1),
+                ..Default::default()
+            },
+        )
+        .await;
+
+    timeout(Duration::from_secs(5), group.next_event())
+        .await
+        .expect("first event must arrive")
+        .expect("event stream remains open");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    group.cancel();
+
+    let error = timeout(Duration::from_secs(5), group.wait())
+        .await
+        .expect("cancelled group must finish under backpressure")
+        .expect_err("group is cancelled");
+    assert!(matches!(error.results[0].error, Some(Error::Cancelled)));
+
+    let mut remaining = 0;
+    loop {
+        match timeout(Duration::from_secs(2), group.next_event()).await {
+            Ok(Some(_)) => remaining += 1,
+            Ok(None) => break,
+            Err(_) => panic!("cancelled forwarder must close the event stream"),
+        }
+    }
+    assert!(
+        remaining <= 1,
+        "cancelled forwarder delivered {remaining} queued events"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn event_stream_preserves_order_with_small_buffer() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-order"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.started","item":{"id":"item_0","type":"agent_message"}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+"#,
+    );
+    let runner = Runner::builder()
+        .executable(fake.executable())
+        .event_buffer(1)
+        .build();
+    let mut session = runner
+        .start(Request::new("order"))
+        .await
+        .expect("session starts");
+    let mut kinds = Vec::new();
+
+    while let Some(event) = session.next_event().await {
+        kinds.push(event.kind);
+    }
+    session.wait().await.expect("run succeeds");
+
+    assert_eq!(
+        kinds,
+        [
+            EventKind::ThreadStarted,
+            EventKind::TurnStarted,
+            EventKind::ItemStarted,
+            EventKind::ItemCompleted,
+            EventKind::TurnCompleted,
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_wait_handles_large_event_burst_without_consumption() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+i=0
+while [ "$i" -lt 4096 ]; do
+  printf '{"type":"burst.%s"}\n' "$i"
+  i=$((i + 1))
+done
+"#,
+    );
+    let runner = Runner::builder()
+        .executable(fake.executable())
+        .event_buffer(1)
+        .build();
+    let session = runner
+        .start(Request::new("burst"))
+        .await
+        .expect("session starts");
+
+    let result = timeout(Duration::from_secs(5), session.wait())
+        .await
+        .expect("large burst must not block completion")
+        .expect("run succeeds");
+
+    assert_eq!(result.events.len(), 4096);
+    assert_eq!(result.events[0].kind.as_str(), "burst.0");
+    assert_eq!(result.events[4095].kind.as_str(), "burst.4095");
 }
