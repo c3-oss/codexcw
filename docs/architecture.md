@@ -16,7 +16,11 @@ The core is an async (tokio) library that owns all behavior:
   Claude event stream into the shared `Event` model (init becomes
   `thread.started` + `turn.started`, tool_use/tool_result pairs become
   `item.started`/`item.completed`, the final result becomes `turn.completed`
-  or `turn.failed`), keeping the original Claude JSON in `raw`.
+  or `turn.failed`), keeping the original Claude JSON in `raw`. Tool calls map
+  to the shared item kinds: Bash to `command_execution`, Write/Edit to
+  `file_change`, `mcp__*` to `mcp_tool_call`, WebSearch to `web_search`, Task
+  (subagents) to `collab_tool_call`, TodoWrite to `plan_update`, and anything
+  else to `tool_call`.
 - **`decoder` / `event`** parse each JSONL line into a typed `Event` while keeping
   the original JSON text in `raw` for forward compatibility. Unknown event and
   item types are preserved rather than dropped.
