@@ -16,15 +16,18 @@ type wireEvent struct {
 }
 
 type wireItem struct {
-	ID               string       `json:"id"`
-	Type             ItemType     `json:"type"`
-	Status           string       `json:"status"`
-	Text             string       `json:"text"`
-	Message          string       `json:"message"`
-	Command          string       `json:"command"`
-	AggregatedOutput string       `json:"aggregated_output"`
-	ExitCode         *int         `json:"exit_code"`
-	Changes          []FileChange `json:"changes"`
+	ID                string       `json:"id"`
+	Type              ItemType     `json:"type"`
+	Status            string       `json:"status"`
+	Text              string       `json:"text"`
+	Message           string       `json:"message"`
+	Command           string       `json:"command"`
+	AggregatedOutput  string       `json:"aggregated_output"`
+	ExitCode          *int         `json:"exit_code"`
+	Changes           []FileChange `json:"changes"`
+	Tool              string       `json:"tool"`
+	SenderThreadID    string       `json:"sender_thread_id"`
+	ReceiverThreadIDs []string     `json:"receiver_thread_ids"`
 }
 
 func decodeEvent(line []byte, runID string, threadID string, now time.Time) (Event, error) {
@@ -53,9 +56,12 @@ func decodeEvent(line []byte, runID string, threadID string, now time.Time) (Eve
 	case EventTurnStarted:
 		event.TurnStarted = &TurnStartedEvent{}
 	case EventTurnCompleted:
-		event.TurnCompleted = &TurnCompletedEvent{Usage: wire.Usage}
+		event.TurnCompleted = &TurnCompletedEvent{Usage: normalizeCodexUsage(wire.Usage)}
 	case EventTurnFailed:
-		event.TurnFailed = &TurnFailedEvent{Error: decodeEventError(wire.Error)}
+		event.TurnFailed = &TurnFailedEvent{
+			Error: decodeEventError(wire.Error),
+			Usage: normalizeCodexUsage(wire.Usage),
+		}
 	case EventItemStarted:
 		item, err := decodeItem(wire.Item)
 		if err != nil {
@@ -87,17 +93,30 @@ func decodeItem(raw json.RawMessage) (Item, error) {
 		return Item{}, err
 	}
 	return Item{
-		ID:               wire.ID,
-		Type:             wire.Type,
-		Status:           wire.Status,
-		Raw:              append(json.RawMessage(nil), raw...),
-		Text:             wire.Text,
-		Message:          wire.Message,
-		Command:          wire.Command,
-		AggregatedOutput: wire.AggregatedOutput,
-		ExitCode:         wire.ExitCode,
-		Changes:          wire.Changes,
+		ID:                wire.ID,
+		Type:              wire.Type,
+		Status:            wire.Status,
+		Raw:               append(json.RawMessage(nil), raw...),
+		Text:              wire.Text,
+		Message:           wire.Message,
+		Command:           wire.Command,
+		AggregatedOutput:  wire.AggregatedOutput,
+		ExitCode:          wire.ExitCode,
+		Changes:           wire.Changes,
+		Tool:              wire.Tool,
+		SenderThreadID:    wire.SenderThreadID,
+		ReceiverThreadIDs: wire.ReceiverThreadIDs,
 	}, nil
+}
+
+// normalizeCodexUsage derives the total when Codex omits total_tokens.
+// cached_input_tokens is a subset of input_tokens on the codex wire, so the
+// derived total is input plus output; an explicit total is preserved.
+func normalizeCodexUsage(usage Usage) Usage {
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	}
+	return usage
 }
 
 func decodeEventError(raw json.RawMessage) ErrorPayload {

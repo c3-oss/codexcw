@@ -307,6 +307,11 @@ func (d *claudeEventDecoder) decodeUser(base Event, wire *claudeWireEvent) ([]Ev
 				item.Changes[0].Kind = kind
 			}
 		}
+		if item.Type == ItemCollabToolCall {
+			if agentID := claudeAgentID(wire.ToolUseResult); agentID != "" {
+				item.ReceiverThreadIDs = []string{agentID}
+			}
+		}
 		events = append(events, claudeItemCompleted(base, item))
 	}
 	if len(events) == 0 {
@@ -355,18 +360,46 @@ func claudeResultUsage(wire *claudeWireEvent) Usage {
 	for model, usage := range wire.ModelUsage {
 		modelUsage[model] = ModelUsage(usage)
 	}
+
+	// result.usage covers the root agent only; modelUsage and the cost also
+	// cover subagents. The full-run total comes from modelUsage when Claude
+	// reports it.
+	totalTokens := wire.Usage.InputTokens +
+		wire.Usage.CacheCreationInputTokens +
+		wire.Usage.CacheReadInputTokens +
+		wire.Usage.OutputTokens
+	if len(modelUsage) > 0 {
+		totalTokens = 0
+		for _, usage := range modelUsage {
+			totalTokens += usage.InputTokens +
+				usage.CacheCreationInputTokens +
+				usage.CacheReadInputTokens +
+				usage.OutputTokens
+		}
+	}
+
 	return Usage{
 		InputTokens:              wire.Usage.InputTokens,
 		CachedInputTokens:        wire.Usage.CacheReadInputTokens,
 		CacheCreationInputTokens: wire.Usage.CacheCreationInputTokens,
 		OutputTokens:             wire.Usage.OutputTokens,
-		TotalTokens: wire.Usage.InputTokens +
-			wire.Usage.CacheCreationInputTokens +
-			wire.Usage.CacheReadInputTokens +
-			wire.Usage.OutputTokens,
-		TotalCostUSD: wire.TotalCostUSD,
-		ModelUsage:   modelUsage,
+		TotalTokens:              totalTokens,
+		TotalCostUSD:             wire.TotalCostUSD,
+		ModelUsage:               modelUsage,
 	}
+}
+
+func claudeAgentID(toolUseResult json.RawMessage) string {
+	if len(toolUseResult) == 0 {
+		return ""
+	}
+	var wire struct {
+		AgentID string `json:"agentId"`
+	}
+	if json.Unmarshal(toolUseResult, &wire) != nil {
+		return ""
+	}
+	return wire.AgentID
 }
 
 func claudeToolItem(block claudeWireBlock, rawBlock json.RawMessage) Item {
@@ -402,8 +435,11 @@ func claudeToolItem(block claudeWireBlock, rawBlock json.RawMessage) Item {
 		item.Type = ItemMCPToolCall
 	case block.Name == "WebSearch":
 		item.Type = ItemWebSearch
-	case block.Name == "Task":
+	case block.Name == "Task" || block.Name == "Agent":
+		// "Task" is the legacy name of the subagent tool; current Claude
+		// Code CLIs call it "Agent".
 		item.Type = ItemCollabToolCall
+		item.Tool = block.Name
 	case block.Name == "TodoWrite":
 		item.Type = ItemPlanUpdate
 	default:
