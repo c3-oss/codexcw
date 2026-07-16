@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/codexcw-linux-arm64-gnu",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "cpu": [
     "arm64"
   ],
