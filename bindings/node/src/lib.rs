@@ -229,6 +229,8 @@ pub struct JsGroupResult {
 /// Options for constructing a [`Runner`].
 #[napi(object)]
 pub struct JsRunnerOptions {
+    /// Which agent CLI to wrap: `codex` (default) or `claude`.
+    pub agent: Option<String>,
     pub executable: Option<String>,
     pub env: Option<HashMap<String, String>>,
     pub event_buffer: Option<u32>,
@@ -258,6 +260,9 @@ pub struct JsRequest {
     pub profile: Option<String>,
     pub sandbox: Option<String>,
     pub approval: Option<String>,
+    pub permission_mode: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub disallowed_tools: Option<Vec<String>>,
     pub config: Option<Vec<JsConfigOverride>>,
     pub enable: Option<Vec<String>>,
     pub disable: Option<Vec<String>>,
@@ -312,6 +317,14 @@ fn parse_approval(value: &str) -> Result<ApprovalPolicy, JsError> {
     }
 }
 
+fn parse_agent(value: &str) -> Result<codexcw::Agent, JsError> {
+    match value {
+        "codex" => Ok(codexcw::Agent::Codex),
+        "claude" => Ok(codexcw::Agent::Claude),
+        other => Err(invalid_request(format!("unknown agent: {other}"))),
+    }
+}
+
 fn invalid_request(message: String) -> JsError {
     JsError {
         kind: "invalidRequest".to_string(),
@@ -341,6 +354,9 @@ fn to_core_request(req: JsRequest) -> Result<Request, JsError> {
         profile: req.profile,
         sandbox,
         approval,
+        permission_mode: req.permission_mode,
+        allowed_tools: req.allowed_tools.unwrap_or_default(),
+        disallowed_tools: req.disallowed_tools.unwrap_or_default(),
         config: req
             .config
             .unwrap_or_default()
@@ -802,6 +818,9 @@ impl Runner {
     pub fn new(options: Option<JsRunnerOptions>) -> Self {
         let mut builder = CoreRunner::builder();
         if let Some(options) = options {
+            if let Some(value) = options.agent {
+                builder = builder.agent(parse_agent(&value).unwrap_or_default());
+            }
             if let Some(executable) = options.executable {
                 builder = builder.executable(executable);
             }

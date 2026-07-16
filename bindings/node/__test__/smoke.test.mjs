@@ -8,11 +8,19 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { Runner, CodexcwError, getAccountUsage } from '../index.js'
+import {
+  Runner,
+  CodexcwError,
+  getAccountUsage,
+  ClaudeModel,
+  PermissionMode,
+} from '../index.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fakeCodex = join(here, 'fixtures', 'fake-codex.sh')
+const fakeClaude = join(here, 'fixtures', 'fake-claude.sh')
 chmodSync(fakeCodex, 0o755)
+chmodSync(fakeClaude, 0o755)
 
 function runnerWithCapture() {
   const dir = mkdtempSync(join(tmpdir(), 'codexcw-'))
@@ -117,6 +125,68 @@ test('runMany collects results', async () => {
     assert.equal(r.error, null)
     assert.equal(r.result.finalMessage, 'Oi.')
   }
+})
+
+test('claude agent normalizes stream-json events', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codexcw-claude-'))
+  const argsFile = join(dir, 'args.txt')
+  const stdinFile = join(dir, 'stdin.txt')
+  const runner = new Runner({
+    agent: 'claude',
+    executable: fakeClaude,
+    env: { CODEXCW_ARGS_FILE: argsFile, CODEXCW_STDIN_FILE: stdinFile },
+  })
+
+  const result = await runner.run({
+    prompt: 'create hello.txt',
+    model: ClaudeModel.Haiku,
+    permissionMode: PermissionMode.AcceptEdits,
+  })
+
+  assert.equal(result.threadId, 'sess-1')
+  assert.equal(result.finalMessage, 'Done.')
+  assert.equal(result.usage.inputTokens, 18)
+  assert.equal(result.usage.cachedInputTokens, 45921)
+  assert.deepEqual(
+    result.events.map((e) => e.type),
+    [
+      'thread.started',
+      'turn.started',
+      'item.started',
+      'item.completed',
+      'item.completed',
+      'turn.completed',
+    ],
+  )
+  const fileChange = result.events[3].item
+  assert.equal(fileChange.type, 'file_change')
+  assert.equal(fileChange.changes[0].path, '/work/hello.txt')
+  assert.equal(fileChange.changes[0].kind, 'add')
+  assert.equal(fileChange.aggregatedOutput, 'File created successfully')
+
+  assert.equal(readFileSync(stdinFile, 'utf8'), 'create hello.txt')
+  const args = readFileSync(argsFile, 'utf8').trim().split('\n')
+  assert.equal(args[0], '-p')
+  assert.ok(args.includes('stream-json'))
+  assert.ok(args.includes('--verbose'))
+  assert.ok(args.includes('--model'))
+  assert.ok(args.includes('haiku'))
+  assert.ok(args.includes('--permission-mode'))
+  assert.ok(args.includes('acceptEdits'))
+  assert.ok(args.includes('--no-session-persistence'))
+})
+
+test('claude agent rejects codex-only fields', async () => {
+  const runner = new Runner({ agent: 'claude', executable: fakeClaude })
+
+  await assert.rejects(
+    runner.run({ prompt: 'x', sandbox: 'read-only' }),
+    (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'invalidRequest')
+      return true
+    },
+  )
 })
 
 test('getAccountUsage reads account limits', async () => {

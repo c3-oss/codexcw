@@ -1,10 +1,35 @@
 // Public TypeScript API for @c3-oss/codexcw.
 
-/** Sandbox policy passed to `codex exec`. */
+/** The CLI wrapped by a {@link Runner}. */
+export type Agent = 'codex' | 'claude'
+
+/** Sandbox policy passed to `codex exec` (codex agent only). */
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
-/** Approval policy passed to Codex. */
+/** Approval policy passed to Codex (codex agent only). */
 export type ApprovalPolicy = 'untrusted' | 'on-request' | 'never'
+
+/** Permission mode passed to Claude (claude agent only). */
+export type PermissionModeValue =
+  | 'acceptEdits'
+  | 'bypassPermissions'
+  | 'plan'
+  | 'dontAsk'
+
+/** Model aliases accepted by the claude agent's `model` field. */
+export declare const ClaudeModel: {
+  readonly Haiku: 'haiku'
+  readonly Sonnet: 'sonnet'
+  readonly Opus: 'opus'
+}
+
+/** Permission modes accepted by the claude agent's `permissionMode` field. */
+export declare const PermissionMode: {
+  readonly AcceptEdits: 'acceptEdits'
+  readonly BypassPermissions: 'bypassPermissions'
+  readonly Plan: 'plan'
+  readonly DontAsk: 'dontAsk'
+}
 
 /** One `-c key=value` config override. */
 export interface ConfigOverride {
@@ -161,6 +186,12 @@ export interface Request {
   profile?: string
   sandbox?: SandboxMode
   approval?: ApprovalPolicy
+  /** Claude permission mode (claude agent only). */
+  permissionMode?: PermissionModeValue
+  /** Tool patterns Claude may use without prompting (claude agent only). */
+  allowedTools?: string[]
+  /** Tool patterns denied to Claude (claude agent only). */
+  disallowedTools?: string[]
   config?: ConfigOverride[]
   enable?: string[]
   disable?: string[]
@@ -182,6 +213,8 @@ export interface Request {
 
 /** Options for constructing a {@link Runner}. */
 export interface RunnerOptions {
+  /** Which agent CLI to wrap. Defaults to `codex`. */
+  agent?: Agent
   executable?: string
   env?: Record<string, string>
   eventBuffer?: number

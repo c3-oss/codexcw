@@ -218,6 +218,9 @@ export interface JsRequest {
   profile?: string
   sandbox?: string
   approval?: string
+  permissionMode?: string
+  allowedTools?: Array<string>
+  disallowedTools?: Array<string>
   config?: Array<JsConfigOverride>
   enable?: Array<string>
   disable?: Array<string>
@@ -246,6 +249,8 @@ export interface JsRunEvent {
 
 /** Options for constructing a [`Runner`]. */
 export interface JsRunnerOptions {
+  /** Which agent CLI to wrap: `codex` (default) or `claude`. */
+  agent?: string
   executable?: string
   env?: Record<string, string>
   eventBuffer?: number

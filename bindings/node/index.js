@@ -5,6 +5,21 @@
 
 const native = require('./binding.js')
 
+/** Model aliases accepted by the claude agent's `model` field. */
+const ClaudeModel = Object.freeze({
+  Haiku: 'haiku',
+  Sonnet: 'sonnet',
+  Opus: 'opus',
+})
+
+/** Permission modes accepted by the claude agent's `permissionMode` field. */
+const PermissionMode = Object.freeze({
+  AcceptEdits: 'acceptEdits',
+  BypassPermissions: 'bypassPermissions',
+  Plan: 'plan',
+  DontAsk: 'dontAsk',
+})
+
 /** A typed Codex run error. */
 class CodexcwError extends Error {
   constructor(info) {
@@ -127,4 +142,12 @@ async function getAccountUsage(req) {
   return outcome.result
 }
 
-module.exports = { Runner, Session, Group, CodexcwError, getAccountUsage }
+module.exports = {
+  Runner,
+  Session,
+  Group,
+  CodexcwError,
+  getAccountUsage,
+  ClaudeModel,
+  PermissionMode,
+}
