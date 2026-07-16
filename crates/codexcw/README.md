@@ -15,6 +15,11 @@ Runners can alternatively wrap Claude Code:
 same `Event` model, with model selection via the `haiku`/`sonnet`/`opus`
 aliases (`claude_model`).
 
+Claude permission modes are available through `permission_mode`, including
+`AUTO` and `MANUAL`. Completed Claude runs expose cache-creation tokens, total
+cost, and per-model usage through `RunResult::usage`. Failed Claude results
+surface as `Error::Claude`.
+
 ## Usage
 
 ```rust,no_run
@@ -52,7 +57,7 @@ let result = session.wait().await?;
 ```
 
 Every event keeps `raw` (the original JSON text) so callers can inspect new
-Codex event fields before the wrapper adds typed helpers.
+agent event fields before the wrapper adds typed helpers.
 
 ## Account usage
 
@@ -74,7 +79,21 @@ if let Some(token_usage) = &usage.token_usage {
 # }
 ```
 
-## Running many Codex instances
+Claude account usage is available through its `/usage` command:
+
+```rust,no_run
+use codexcw::{get_claude_account_usage, ClaudeAccountUsageRequest};
+
+# async fn run() -> Result<(), codexcw::Error> {
+let usage = get_claude_account_usage(ClaudeAccountUsageRequest::default()).await?;
+for window in usage.windows {
+    println!("{}: {}% used", window.label, window.used_percent);
+}
+# Ok(())
+# }
+```
+
+## Running many agent instances
 
 ```rust,no_run
 use codexcw::{ManyOptions, Request, Runner};

@@ -16,7 +16,7 @@ Each page works through: quickstart, streaming events, per-event callbacks,
 and approvals**, bounded-concurrency batches, config overrides, structured
 output, Fast mode (`/fast`), working directories, model/profile selection, stdin
 input, custom executable/env, account usage and limits, typed error handling,
-and cancellation.
+Claude per-run and account usage, and cancellation.
 
 See the [README](../../README.md) for the cross-language overview and
 [AGENTS.md](../../AGENTS.md) for the project guide.

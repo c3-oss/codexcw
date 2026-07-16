@@ -312,6 +312,16 @@ let result = runner
         ..Default::default()
     })
     .await?;
+
+println!("total tokens: {}", result.usage.total_tokens);
+println!("cache creation: {}", result.usage.cache_creation_input_tokens);
+println!("cost: ${}", result.usage.total_cost_usd);
+for (model, usage) in &result.usage.model_usage {
+    println!(
+        "{model}: {} input, {} output",
+        usage.input_tokens, usage.output_tokens
+    );
+}
 ```
 
 ```rust
@@ -350,6 +360,9 @@ and `dangerously_bypass_sandbox` (passed as
 `disallowed_tools` are claude-only; codex-only fields (`sandbox`, `approval`,
 `profile`, `config`, `images`, feature flags) return
 `Error::InvalidRequest` on a claude runner.
+
+The permission-mode constants are `ACCEPT_EDITS`, `AUTO`,
+`BYPASS_PERMISSIONS`, `MANUAL`, `DONT_ASK`, and `PLAN`.
 
 ## Stdin input
 
@@ -402,6 +415,22 @@ if let Some(token_usage) = &usage.token_usage {
 `account` and `token_usage` are `None` when codex answers those reads with a
 JSON-RPC error; transport errors and timeouts fail the whole call.
 
+Claude account usage comes from `/usage`. The typed windows contain the label,
+used percentage, and Claude's reset description; `report` and `raw` preserve
+the complete human-readable report and JSON result line.
+
+```rust
+use codexcw::{get_claude_account_usage, ClaudeAccountUsageRequest};
+
+let usage = get_claude_account_usage(ClaudeAccountUsageRequest::default()).await?;
+for window in &usage.windows {
+    println!(
+        "{}: {}% used, resets {}",
+        window.label, window.used_percent, window.resets_at
+    );
+}
+```
+
 ## Error handling
 
 ```rust
@@ -409,8 +438,9 @@ use codexcw::{Error, Request, Runner};
 
 match runner.run(Request::new("...")).await {
     Ok(result) => println!("{}", result.final_message),
-    Err(Error::Exit { code, stderr, .. }) => println!("codex exited {code}: {stderr}"),
+    Err(Error::Exit { code, stderr, .. }) => println!("agent exited {code}: {stderr}"),
     Err(Error::Codex { message, .. }) => println!("codex reported: {message}"),
+    Err(Error::Claude { message, .. }) => println!("claude reported: {message}"),
     Err(Error::Decode { line, .. }) => println!("bad JSONL on line {line}"),
     Err(Error::PromptRequired) => println!("prompt or stdin is required"),
     Err(other) => println!("error: {other}"),
