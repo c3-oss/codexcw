@@ -347,6 +347,9 @@ struct ReqData {
     profile: Option<String>,
     sandbox: Option<String>,
     approval: Option<String>,
+    permission_mode: Option<String>,
+    allowed_tools: Option<Vec<String>>,
+    disallowed_tools: Option<Vec<String>>,
     config: Option<Vec<ConfigData>>,
     enable: Option<Vec<String>>,
     disable: Option<Vec<String>>,
@@ -386,6 +389,9 @@ impl ReqData {
             profile: self.profile,
             sandbox,
             approval,
+            permission_mode: self.permission_mode,
+            allowed_tools: self.allowed_tools.unwrap_or_default(),
+            disallowed_tools: self.disallowed_tools.unwrap_or_default(),
             config: self
                 .config
                 .unwrap_or_default()
@@ -464,6 +470,14 @@ fn invalid_request(message: String) -> PyError {
         code: None,
         stderr: None,
         line: None,
+    }
+}
+
+fn parse_agent(value: &str) -> Result<codexcw::Agent, PyError> {
+    match value {
+        "codex" => Ok(codexcw::Agent::Codex),
+        "claude" => Ok(codexcw::Agent::Claude),
+        other => Err(invalid_request(format!("unknown agent: {other}"))),
     }
 }
 
@@ -905,6 +919,7 @@ impl Runner {
         scan_max_bytes=None,
         default_sandbox=None,
         default_approval=None,
+        agent=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -915,8 +930,12 @@ impl Runner {
         scan_max_bytes: Option<u32>,
         default_sandbox: Option<String>,
         default_approval: Option<String>,
+        agent: Option<String>,
     ) -> Self {
         let mut builder = CoreRunner::builder();
+        if let Some(value) = agent {
+            builder = builder.agent(parse_agent(&value).unwrap_or_default());
+        }
         if let Some(executable) = executable {
             builder = builder.executable(executable);
         }

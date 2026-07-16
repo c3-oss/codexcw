@@ -32,6 +32,17 @@ from ._codexcw import PyRunResult as RunResult
 from ._codexcw import PyUsage as Usage
 
 __all__ = [
+    "AGENT_CLAUDE",
+    "AGENT_CODEX",
+    "CLAUDE_MODEL_HAIKU",
+    "CLAUDE_MODEL_OPUS",
+    "CLAUDE_MODEL_SONNET",
+    "PERMISSION_ACCEPT_EDITS",
+    "PERMISSION_BYPASS_PERMISSIONS",
+    "PERMISSION_DONT_ASK",
+    "PERMISSION_PLAN",
+    "Agent",
+    "PermissionMode",
     "AccountCredits",
     "AccountRateLimitWindow",
     "AccountRateLimits",
@@ -63,6 +74,25 @@ __all__ = [
 # String literals accepted by ``Request.sandbox`` and ``Request.approval``.
 SandboxMode = str
 ApprovalPolicy = str
+
+# String literals accepted by ``Runner(agent=...)`` and
+# ``Request.permission_mode``.
+Agent = str
+PermissionMode = str
+
+AGENT_CODEX = "codex"
+AGENT_CLAUDE = "claude"
+
+# Model aliases accepted by the claude agent's ``Request.model``.
+CLAUDE_MODEL_HAIKU = "haiku"
+CLAUDE_MODEL_SONNET = "sonnet"
+CLAUDE_MODEL_OPUS = "opus"
+
+# Permission modes accepted by the claude agent's ``Request.permission_mode``.
+PERMISSION_ACCEPT_EDITS = "acceptEdits"
+PERMISSION_BYPASS_PERMISSIONS = "bypassPermissions"
+PERMISSION_PLAN = "plan"
+PERMISSION_DONT_ASK = "dontAsk"
 
 
 class CodexcwError(Exception):
@@ -141,6 +171,9 @@ class Request:
     profile: Optional[str] = None
     sandbox: Optional[SandboxMode] = None
     approval: Optional[ApprovalPolicy] = None
+    permission_mode: Optional[PermissionMode] = None
+    allowed_tools: Optional[List[str]] = None
+    disallowed_tools: Optional[List[str]] = None
     config: Optional[List[ConfigOverride]] = None
     enable: Optional[List[str]] = None
     disable: Optional[List[str]] = None
@@ -226,6 +259,7 @@ class Runner:
     def __init__(
         self,
         *,
+        agent: Optional[Agent] = None,
         executable: Optional[str] = None,
         env: Optional[dict] = None,
         event_buffer: Optional[int] = None,
@@ -242,6 +276,7 @@ class Runner:
             scan_max_bytes=scan_max_bytes,
             default_sandbox=default_sandbox,
             default_approval=default_approval,
+            agent=agent,
         )
 
     def run(

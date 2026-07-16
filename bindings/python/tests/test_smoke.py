@@ -19,11 +19,13 @@ pytestmark = pytest.mark.skipif(
 )
 
 FAKE_CODEX = Path(__file__).parent / "fixtures" / "fake_codex.sh"
+FAKE_CLAUDE = Path(__file__).parent / "fixtures" / "fake_claude.sh"
 
 
 @pytest.fixture(autouse=True)
 def _executable_fixture():
     FAKE_CODEX.chmod(FAKE_CODEX.stat().st_mode | stat.S_IEXEC)
+    FAKE_CLAUDE.chmod(FAKE_CLAUDE.stat().st_mode | stat.S_IEXEC)
 
 
 def _runner_with_capture(tmp_path: Path) -> tuple[Runner, Path, Path]:
@@ -146,6 +148,64 @@ def test_run_many_collects_results(tmp_path):
     for result in results:
         assert result.error is None
         assert result.result.final_message == "Oi."
+
+
+def test_claude_agent_normalizes_events(tmp_path):
+    args_file = tmp_path / "args.txt"
+    stdin_file = tmp_path / "stdin.txt"
+    runner = Runner(
+        agent=codexcw.AGENT_CLAUDE,
+        executable=str(FAKE_CLAUDE),
+        env={
+            "CODEXCW_ARGS_FILE": str(args_file),
+            "CODEXCW_STDIN_FILE": str(stdin_file),
+        },
+    )
+
+    result = runner.run(
+        Request(
+            prompt="create hello.txt",
+            model=codexcw.CLAUDE_MODEL_HAIKU,
+            permission_mode=codexcw.PERMISSION_ACCEPT_EDITS,
+        )
+    )
+
+    assert result.thread_id == "sess-1"
+    assert result.final_message == "Done."
+    assert result.usage.input_tokens == 18
+    assert result.usage.cached_input_tokens == 45921
+    assert [event.type for event in result.events] == [
+        "thread.started",
+        "turn.started",
+        "item.started",
+        "item.completed",
+        "item.completed",
+        "turn.completed",
+    ]
+    file_change = result.events[3].item
+    assert file_change.type == "file_change"
+    assert file_change.changes[0].path == "/work/hello.txt"
+    assert file_change.changes[0].kind == "add"
+    assert file_change.aggregated_output == "File created successfully"
+
+    assert stdin_file.read_text() == "create hello.txt"
+    args = args_file.read_text().strip().split("\n")
+    assert args[0] == "-p"
+    assert "stream-json" in args
+    assert "--verbose" in args
+    assert "--model" in args
+    assert "haiku" in args
+    assert "--permission-mode" in args
+    assert "acceptEdits" in args
+    assert "--no-session-persistence" in args
+
+
+def test_claude_agent_rejects_codex_only_fields(tmp_path):
+    runner = Runner(agent=codexcw.AGENT_CLAUDE, executable=str(FAKE_CLAUDE))
+
+    with pytest.raises(CodexcwError) as excinfo:
+        runner.run(Request(prompt="x", sandbox="read-only"))
+    assert excinfo.value.kind == "invalidRequest"
 
 
 def test_get_account_usage_reads_limits(tmp_path):
