@@ -176,6 +176,30 @@ jobs:
       - name: Test
         run: devbox run -- just node-test
 
+  dotnet:
+    name: dotnet / build + fmt + test
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.15.0
+        with:
+          enable-cache: true
+          devbox-version: 0.17.4
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ubuntu-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
+          restore-keys: ubuntu-nuget-
+      - name: Build
+        run: devbox run -- just dotnet-build
+      - name: Format check
+        run: devbox run -- just dotnet-fmt-check
+      - name: Test
+        run: devbox run -- just dotnet-test
+
   python:
     name: python / ${{ matrix.os }}
     runs-on: ${{ matrix.runs-on }}
