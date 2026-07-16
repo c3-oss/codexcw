@@ -148,6 +148,38 @@ def test_run_many_collects_results(tmp_path):
         assert result.result.final_message == "Oi."
 
 
+def test_run_many_preserves_request_conversion_errors(tmp_path):
+    runner, _, _ = _runner_with_capture(tmp_path)
+
+    group = runner.run_many(
+        [
+            Request(prompt="bad sandbox", sandbox="bogus"),
+            Request(prompt="valid"),
+            Request(prompt="bad approval", approval="bogus"),
+        ]
+    )
+
+    event_indices = [run_event.index for run_event in group.events()]
+    results = group.wait()
+
+    assert [result.index for result in results] == [0, 1, 2]
+    assert event_indices
+    assert set(event_indices) == {1}
+
+    assert isinstance(results[0].error, CodexcwError)
+    assert results[0].error.kind == "invalidRequest"
+    assert "unknown sandbox mode: bogus" in str(results[0].error)
+    assert results[0].result is None
+
+    assert results[1].error is None
+    assert results[1].result.final_message == "Oi."
+
+    assert isinstance(results[2].error, CodexcwError)
+    assert results[2].error.kind == "invalidRequest"
+    assert "unknown approval policy: bogus" in str(results[2].error)
+    assert results[2].result is None
+
+
 def test_get_account_usage_reads_limits(tmp_path):
     fake = _usage_fake(tmp_path)
     args_file = tmp_path / "usage-args.txt"

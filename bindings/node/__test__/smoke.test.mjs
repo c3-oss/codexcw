@@ -119,6 +119,39 @@ test('runMany collects results', async () => {
   }
 })
 
+test('runMany preserves request conversion errors in mixed batches', async () => {
+  const { runner } = runnerWithCapture()
+
+  const group = await runner.runMany([
+    { prompt: 'bad sandbox', sandbox: 'bogus' },
+    { prompt: 'valid' },
+    { prompt: 'bad approval', approval: 'bogus' },
+  ])
+
+  const eventIndices = []
+  for await (const runEvent of group.events()) {
+    eventIndices.push(runEvent.index)
+  }
+  const results = await group.wait()
+
+  assert.deepEqual(results.map((result) => result.index), [0, 1, 2])
+  assert.ok(eventIndices.length > 0)
+  assert.ok(eventIndices.every((index) => index === 1))
+
+  assert.ok(results[0].error instanceof CodexcwError)
+  assert.equal(results[0].error.kind, 'invalidRequest')
+  assert.match(results[0].error.message, /unknown sandbox mode: bogus/)
+  assert.equal(results[0].result, null)
+
+  assert.equal(results[1].error, null)
+  assert.equal(results[1].result.finalMessage, 'Oi.')
+
+  assert.ok(results[2].error instanceof CodexcwError)
+  assert.equal(results[2].error.kind, 'invalidRequest')
+  assert.match(results[2].error.message, /unknown approval policy: bogus/)
+  assert.equal(results[2].result, null)
+})
+
 test('getAccountUsage reads account limits', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'codexcw-usage-'))
   const fake = join(dir, 'codex')
