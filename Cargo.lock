@@ -22,7 +22,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "codexcw"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "codexcw-node"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "codexcw",
  "napi",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "codexcw-py"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "codexcw",
  "pyo3",
