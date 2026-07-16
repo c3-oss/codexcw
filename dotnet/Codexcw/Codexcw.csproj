@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>C3OSS.Codexcw</PackageId>
+    <RootNamespace>C3OSS.Codexcw</RootNamespace>
+    <AssemblyName>C3OSS.Codexcw</AssemblyName>
+    <Description>Run the Codex and Claude Code CLIs non-interactively: spawn agent processes, decode their JSONL event streams, and expose each run as async streams, callbacks, results, and typed errors.</Description>
+    <Authors>c3-oss</Authors>
+    <PackageLicenseExpression>CC0-1.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/c3-oss/codexcw</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/c3-oss/codexcw</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>codex;claude;agent;cli;wrapper;jsonl</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <InternalsVisibleTo Include="Codexcw.Tests" />
+  </ItemGroup>
+</Project>
