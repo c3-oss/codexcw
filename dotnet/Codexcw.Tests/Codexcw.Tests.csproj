@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- The library multi-targets; the suite runs once, on the newest runtime. -->
+    <!-- The library multi-targets; the default run uses the newest runtime,
+         and the compat CI lane sets TestAllFrameworks to cover net8.0 too. -->
     <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TestAllFrameworks)' == 'true'">net8.0;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);CA1707;CA2007;CA1861</NoWarn>
   </PropertyGroup>

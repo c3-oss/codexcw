@@ -278,6 +278,35 @@ public sealed class LiveTests
         }
     }
 
+    [GatedFact("CODEXCW_LIVE_CODEX")]
+    public async Task LiveCodexPersistentResumeRecoversTheThread()
+    {
+        var runner = new Runner();
+        var nonce = $"nonce-{Guid.NewGuid():N}";
+        var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2)).Token;
+
+        var first = await runner.RunAsync(new Request
+        {
+            Prompt = $"Remember this token: {nonce}. Reply only with OK.",
+            Model = "gpt-5.6-terra",
+            Config = [new ConfigOverride("model_reasoning_effort", "\"low\"")],
+            Persistent = true,
+        }, cancellationToken: timeout);
+        Assert.NotEmpty(first.ThreadId);
+
+        var second = await runner.RunAsync(new Request
+        {
+            Prompt = "Reply only with the exact token I asked you to remember.",
+            Model = "gpt-5.6-terra",
+            Config = [new ConfigOverride("model_reasoning_effort", "\"low\"")],
+            ResumeId = first.ThreadId,
+            Persistent = true,
+        }, cancellationToken: timeout);
+
+        Assert.Equal(first.ThreadId, second.ThreadId);
+        Assert.Contains(nonce, second.FinalMessage, StringComparison.Ordinal);
+    }
+
     [GatedFact("CODEXCW_LIVE_TEST")]
     public async Task LiveGetClaudeAccountUsage()
     {
