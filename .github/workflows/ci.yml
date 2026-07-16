@@ -111,8 +111,6 @@ jobs:
         include:
           - os: ubuntu-latest
             runs-on: blacksmith-2vcpu-ubuntu-2404
-          - os: macos-latest
-            runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -127,7 +125,6 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-            ~/Library/Caches/go-build
           key: ${{ matrix.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: ${{ matrix.os }}-go-
       - name: Build
@@ -164,8 +161,6 @@ jobs:
         include:
           - os: ubuntu-latest
             runs-on: blacksmith-2vcpu-ubuntu-2404
-          - os: macos-latest
-            runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -190,8 +185,6 @@ jobs:
         include:
           - os: ubuntu-latest
             runs-on: blacksmith-2vcpu-ubuntu-2404
-          - os: macos-latest
-            runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
