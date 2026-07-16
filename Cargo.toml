@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/codexcw", "bindings/node", "bindings/python"]
 
 [workspace.package]
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.90"
 license = "CC0-1.0"
@@ -12,7 +12,7 @@ homepage = "https://github.com/c3-oss/codexcw"
 authors = ["c3-oss"]
 
 [workspace.dependencies]
-codexcw = { path = "crates/codexcw", version = "0.2.2" }
+codexcw = { path = "crates/codexcw", version = "0.2.3" }
 tokio = { version = "1", default-features = false, features = [
   "process",
   "io-util",

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "codexcw"
-version = "0.2.2"
+version = "0.2.3"
 description = "Run the Codex CLI non-interactively from Python, backed by a Rust core."
 readme = "README.md"
 requires-python = ">=3.9"
