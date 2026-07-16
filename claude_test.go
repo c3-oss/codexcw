@@ -164,7 +164,7 @@ func TestClaudeToolKindMapping(t *testing.T) {
 record_args "$@"
 cat >/dev/null
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-tools"}'
-printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}},{"type":"tool_use","id":"t2","name":"mcp__github__get_issue","input":{}},{"type":"tool_use","id":"t3","name":"WebSearch","input":{}},{"type":"tool_use","id":"t4","name":"Read","input":{}},{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"printf ok"}}]},"session_id":"sess-tools"}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}},{"type":"tool_use","id":"t2","name":"mcp__github__get_issue","input":{}},{"type":"tool_use","id":"t3","name":"WebSearch","input":{}},{"type":"tool_use","id":"t4","name":"Read","input":{}},{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"printf ok"}},{"type":"tool_use","id":"t6","name":"Task","input":{"subagent_type":"explore","prompt":"map the repo"}},{"type":"tool_use","id":"t7","name":"TodoWrite","input":{"todos":[]}}]},"session_id":"sess-tools"}'
 printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Exit code 7","is_error":true}]},"session_id":"sess-tools","tool_use_result":"Error: Exit code 7"}'
 printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t5","content":"ok","is_error":false}]},"session_id":"sess-tools","tool_use_result":"ok"}'
 printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"sess-tools","usage":{"input_tokens":1,"output_tokens":1}}'
@@ -185,6 +185,8 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"o
 	assert.Equal(t, ItemWebSearch, kinds["t3"])
 	assert.Equal(t, ItemToolCall, kinds["t4"])
 	assert.Equal(t, ItemCommandExecution, kinds["t5"])
+	assert.Equal(t, ItemCollabToolCall, kinds["t6"])
+	assert.Equal(t, ItemPlanUpdate, kinds["t7"])
 
 	for _, event := range result.Events {
 		if event.ItemCompleted == nil {

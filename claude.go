@@ -402,6 +402,10 @@ func claudeToolItem(block claudeWireBlock, rawBlock json.RawMessage) Item {
 		item.Type = ItemMCPToolCall
 	case block.Name == "WebSearch":
 		item.Type = ItemWebSearch
+	case block.Name == "Task":
+		item.Type = ItemCollabToolCall
+	case block.Name == "TodoWrite":
+		item.Type = ItemPlanUpdate
 	default:
 		item.Type = ItemToolCall
 	}
