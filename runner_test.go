@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,6 +81,34 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 	assert.Equal(t, "Exit 7", result.FinalMessage)
 }
 
+func TestCollabToolCallItemIsTyped(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-3"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.started","item":{"id":"item_0","type":"collab_tool_call","tool":"wait","sender_thread_id":"thread-3","receiver_thread_ids":[],"agents_states":{},"status":"in_progress"}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"collab_tool_call","tool":"wait","sender_thread_id":"thread-3","receiver_thread_ids":[],"agents_states":{},"status":"completed"}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"red, green, blue"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`)
+
+	result, err := New(WithExecutable(fake)).Run(context.Background(), Request{Prompt: "spawn agents"})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Events, 6)
+
+	started := result.Events[2].ItemStarted.Item
+	assert.Equal(t, ItemCollabToolCall, started.Type)
+	assert.Equal(t, "in_progress", started.Status)
+	assert.Contains(t, string(started.Raw), `"tool":"wait"`)
+
+	completed := result.Events[3].ItemCompleted.Item
+	assert.Equal(t, ItemCollabToolCall, completed.Type)
+	assert.Equal(t, "completed", completed.Status)
+	assert.Equal(t, "red, green, blue", result.FinalMessage)
+}
+
 func TestProcessExitErrorCarriesStderrAndLastEvent(t *testing.T) {
 	fake := writeFakeCodex(t, `
 record_args "$@"
@@ -99,6 +129,130 @@ exit 1
 	assert.Contains(t, exitErr.Stderr, "stderr detail")
 	require.NotNil(t, exitErr.LastEvent)
 	assert.Equal(t, EventTurnStarted, exitErr.LastEvent.Type)
+}
+
+func TestFastExitStderrIsReliable(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+printf '%s\n' 'fast stderr detail' >&2
+exit 1
+`)
+	runner := New(WithExecutable(fake))
+
+	const iterations = 100
+	for iteration := range iterations {
+		result, err := runner.Run(context.Background(), Request{Prompt: "fail"})
+		require.Error(t, err, "iteration %d", iteration)
+		require.NotNil(t, result, "iteration %d", iteration)
+
+		var exitErr *ExitError
+		require.True(t, errors.As(err, &exitErr), "iteration %d", iteration)
+		assert.Contains(t, exitErr.Stderr, "fast stderr detail", "iteration %d", iteration)
+		assert.Contains(t, result.Stderr, "fast stderr detail", "iteration %d", iteration)
+	}
+}
+
+func TestSuccessfulExitCapturesStderr(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+printf '%s\n' 'successful stderr detail' >&2
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-stderr"}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`)
+
+	result, err := New(WithExecutable(fake)).Run(context.Background(), Request{Prompt: "ok"})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Contains(t, result.Stderr, "successful stderr detail")
+}
+
+func TestDescendantHoldingStderrIsBounded(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+sleep 3 >/dev/null &
+printf '%s\n' 'parent stderr detail' >&2
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-descendant"}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`)
+
+	result, err := New(WithExecutable(fake)).Run(context.Background(), Request{Prompt: "ok"})
+	require.ErrorIs(t, err, exec.ErrWaitDelay)
+	require.NotNil(t, result)
+	assert.Contains(t, result.Stderr, "parent stderr detail")
+}
+
+func TestCancellationCapturesStderr(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+printf '%s\n' 'cancelled stderr detail' >&2
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-cancel"}'
+while :; do :; done
+`)
+
+	session, err := New(WithExecutable(fake)).Start(context.Background(), Request{Prompt: "cancel"})
+	require.NoError(t, err)
+	require.Equal(t, EventThreadStarted, (<-session.Events()).Type)
+	require.NoError(t, session.Cancel())
+
+	result, err := session.Wait()
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotNil(t, result)
+	assert.Contains(t, result.Stderr, "cancelled stderr detail")
+}
+
+func TestCancellationWithDescendantHoldingStderrIsBounded(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+sleep 3 >/dev/null &
+printf '%s\n' 'cancelled descendant stderr detail' >&2
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-cancel-descendant"}'
+while :; do :; done
+`)
+
+	session, err := New(WithExecutable(fake)).Start(context.Background(), Request{Prompt: "cancel"})
+	require.NoError(t, err)
+	require.Equal(t, EventThreadStarted, (<-session.Events()).Type)
+
+	startedAt := time.Now()
+	require.NoError(t, session.Cancel())
+	result, err := session.Wait()
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotNil(t, result)
+	assert.Less(t, time.Since(startedAt), 2500*time.Millisecond)
+	assert.Contains(t, result.Stderr, "cancelled descendant stderr detail")
+}
+
+func TestLargeStderrOutputPreservesTail(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+i=0
+while [ "$i" -lt 8192 ]; do
+  printf '%s' '0123456789abcdef' >&2
+  i=$((i + 1))
+done
+printf '%s\n' 'stderr end marker' >&2
+exit 1
+`)
+
+	result, err := New(WithExecutable(fake), WithStderrLimit(256)).Run(
+		context.Background(),
+		Request{Prompt: "fail"},
+	)
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.LessOrEqual(t, len(result.Stderr), 256)
+	assert.Contains(t, result.Stderr, "stderr end marker")
+
+	var exitErr *ExitError
+	require.True(t, errors.As(err, &exitErr))
+	assert.Equal(t, result.Stderr, exitErr.Stderr)
 }
 
 func TestCodexEventErrorPrecedesExitError(t *testing.T) {

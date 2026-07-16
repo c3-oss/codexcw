@@ -210,10 +210,13 @@ impl Runner {
         }
 
         let run_id = new_run_id();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (tx, rx) = mpsc::channel(self.inner.event_buffer.max(1));
         let cancel = CancellationToken::new();
         let thread_id = Arc::new(Mutex::new(String::new()));
         let completion = Arc::new(Completion::new());
+
+        tokio::spawn(forward_events(event_rx, tx));
 
         let tail = Arc::new(TailBuffer::new(self.inner.stderr_limit));
         let stderr_task = tokio::spawn(drain_stderr(stderr, tail.clone()));
@@ -223,7 +226,7 @@ impl Runner {
             stdout,
             stderr_task,
             tail,
-            tx,
+            event_tx,
             cancel: cancel.clone(),
             completion: completion.clone(),
             handler: opts.handler,
@@ -364,7 +367,7 @@ struct CollectCtx {
     stdout: ChildStdout,
     stderr_task: tokio::task::JoinHandle<()>,
     tail: Arc<TailBuffer>,
-    tx: mpsc::Sender<Event>,
+    event_tx: mpsc::UnboundedSender<Event>,
     cancel: CancellationToken,
     completion: Arc<Completion>,
     handler: Option<Handler>,
@@ -386,13 +389,24 @@ pub(crate) async fn drain_stderr(mut stderr: ChildStderr, tail: Arc<TailBuffer>)
     }
 }
 
+async fn forward_events(
+    mut source: mpsc::UnboundedReceiver<Event>,
+    destination: mpsc::Sender<Event>,
+) {
+    while let Some(event) = source.recv().await {
+        if destination.send(event).await.is_err() {
+            break;
+        }
+    }
+}
+
 async fn collect(ctx: CollectCtx) {
     let CollectCtx {
         mut child,
         stdout,
         stderr_task,
         tail,
-        tx,
+        event_tx,
         cancel,
         completion,
         handler,
@@ -492,18 +506,7 @@ async fn collect(ctx: CollectCtx) {
             last_event = Some(event.clone());
             events.push(event.clone());
 
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => {
-                    if run_err.is_none() {
-                        run_err = Some(Error::Cancelled);
-                    }
-                    break 'lines;
-                }
-                send = tx.send(event.clone()) => {
-                    let _ = send;
-                }
-            }
+            let _ = event_tx.send(event.clone());
 
             if let Some(handler) = &handler {
                 if let Err(message) = handler(event.clone()).await {
@@ -546,7 +549,6 @@ async fn collect(ctx: CollectCtx) {
         report,
         error: run_err,
     });
-    drop(tx);
 }
 
 fn classify_process_error(

@@ -515,12 +515,12 @@ impl ClaudeAccountUsageReqData {
 }
 
 impl AccountUsageReqData {
-    fn into_core(self) -> CoreAccountUsageRequest {
-        CoreAccountUsageRequest {
+    fn into_core(self) -> Result<CoreAccountUsageRequest, PyError> {
+        Ok(CoreAccountUsageRequest {
             executable: self.executable,
             env: self.env.unwrap_or_default().into_iter().collect(),
-            timeout: self.timeout.map(Duration::from_secs_f64),
-        }
+            timeout: self.timeout.map(parse_account_usage_timeout).transpose()?,
+        })
     }
 }
 
@@ -568,6 +568,15 @@ fn parse_agent(value: &str) -> Result<codexcw::Agent, PyError> {
         "claude" => Ok(codexcw::Agent::Claude),
         other => Err(invalid_request(format!("unknown agent: {other}"))),
     }
+}
+
+fn parse_account_usage_timeout(timeout: f64) -> Result<Duration, PyError> {
+    Duration::try_from_secs_f64(timeout).map_err(|_| {
+        invalid_request(
+            "account usage timeout must be finite, non-negative, and within the supported duration range"
+                .to_string(),
+        )
+    })
 }
 
 fn to_py_usage(usage: &Usage) -> PyUsage {
@@ -846,7 +855,15 @@ fn to_py_claude_account_usage(usage: &CoreClaudeAccountUsage) -> PyClaudeAccount
 #[pyfunction]
 #[pyo3(signature = (req=None))]
 fn get_account_usage(py: Python<'_>, req: Option<AccountUsageReqData>) -> PyAccountUsageOutcome {
-    let core_req = req.map(AccountUsageReqData::into_core).unwrap_or_default();
+    let core_req = match req.map(AccountUsageReqData::into_core).transpose() {
+        Ok(req) => req.unwrap_or_default(),
+        Err(error) => {
+            return PyAccountUsageOutcome {
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
     let result = py.detach(|| runtime().block_on(core_get_account_usage(core_req)));
     match result {
         Ok(usage) => PyAccountUsageOutcome {
@@ -1001,6 +1018,9 @@ impl Session {
 struct LiveGroup {
     core: codexcw::Group,
     stream: Mutex<ReceiverStream<codexcw::RunEvent>>,
+    indices: Vec<usize>,
+    conversion_errors: Vec<(usize, PyError)>,
+    total: usize,
 }
 
 /// A batch of running selected-agent processes.
@@ -1010,12 +1030,20 @@ pub struct Group {
 }
 
 impl Group {
-    fn from_core(mut core: codexcw::Group) -> Self {
+    fn from_core(
+        mut core: codexcw::Group,
+        indices: Vec<usize>,
+        conversion_errors: Vec<(usize, PyError)>,
+        total: usize,
+    ) -> Self {
         let stream = core.events();
         Group {
             inner: LiveGroup {
                 core,
                 stream: Mutex::new(stream),
+                indices,
+                conversion_errors,
+                total,
             },
         }
     }
@@ -1034,7 +1062,7 @@ impl Group {
         });
         run_event.map(|re| PyRunEvent {
             run_id: re.run_id,
-            index: re.index as u32,
+            index: self.inner.indices[re.index] as u32,
             event: to_py_event(&re.event),
         })
     }
@@ -1050,14 +1078,27 @@ impl Group {
             Ok(results) => results,
             Err(group_error) => group_error.results,
         });
-        results
+        let mut mapped: Vec<Option<PyGroupResult>> = vec![None; self.inner.total];
+        for (index, error) in &self.inner.conversion_errors {
+            mapped[*index] = Some(PyGroupResult {
+                index: *index as u32,
+                run_id: String::new(),
+                result: None,
+                error: Some(error.clone()),
+            });
+        }
+        for result in results {
+            let index = self.inner.indices[result.index];
+            mapped[index] = Some(PyGroupResult {
+                index: index as u32,
+                run_id: result.run_id,
+                result: result.result.as_ref().map(to_py_result),
+                error: result.error.as_ref().map(to_py_error),
+            });
+        }
+        mapped
             .into_iter()
-            .map(|r| PyGroupResult {
-                index: r.index as u32,
-                run_id: r.run_id,
-                result: r.result.as_ref().map(to_py_result),
-                error: r.error.as_ref().map(to_py_error),
-            })
+            .map(|result| result.expect("group result missing"))
             .collect()
     }
 
@@ -1188,10 +1229,19 @@ impl Runner {
         max_concurrent: Option<u32>,
         event_buffer: Option<u32>,
     ) -> Group {
-        let core_reqs: Vec<Request> = reqs
-            .into_iter()
-            .map(|r| r.into_core().unwrap_or_default())
-            .collect();
+        let total = reqs.len();
+        let mut core_reqs = Vec::with_capacity(reqs.len());
+        let mut indices = Vec::with_capacity(reqs.len());
+        let mut conversion_errors = Vec::new();
+        for (index, req) in reqs.into_iter().enumerate() {
+            match req.into_core() {
+                Ok(request) => {
+                    core_reqs.push(request);
+                    indices.push(index);
+                }
+                Err(error) => conversion_errors.push((index, error)),
+            }
+        }
         let mut many = ManyOptions::default();
         if let Some(n) = max_concurrent {
             many.max_concurrent = n as usize;
@@ -1201,7 +1251,7 @@ impl Runner {
         }
         let runner = self.core.clone();
         let core_group = py.detach(move || runtime().block_on(runner.run_many(core_reqs, many)));
-        Group::from_core(core_group)
+        Group::from_core(core_group, indices, conversion_errors, total)
     }
 }
 

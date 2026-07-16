@@ -3,12 +3,12 @@
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, chmodSync, readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import native from '../binding.js'
 import {
   Runner,
   CodexcwError,
@@ -19,8 +19,6 @@ import {
 } from '../index.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const require = createRequire(import.meta.url)
-const native = require('../binding.js')
 const fakeCodex = join(here, 'fixtures', 'fake-codex.sh')
 const fakeClaude = join(here, 'fixtures', 'fake-claude.sh')
 chmodSync(fakeCodex, 0o755)
@@ -298,6 +296,39 @@ test('getClaudeAccountUsage rejects invalid timeout values', async () => {
   }
 })
 
+test('runMany preserves request conversion errors in mixed batches', async () => {
+  const { runner } = runnerWithCapture()
+
+  const group = await runner.runMany([
+    { prompt: 'bad sandbox', sandbox: 'bogus' },
+    { prompt: 'valid' },
+    { prompt: 'bad approval', approval: 'bogus' },
+  ])
+
+  const eventIndices = []
+  for await (const runEvent of group.events()) {
+    eventIndices.push(runEvent.index)
+  }
+  const results = await group.wait()
+
+  assert.deepEqual(results.map((result) => result.index), [0, 1, 2])
+  assert.ok(eventIndices.length > 0)
+  assert.ok(eventIndices.every((index) => index === 1))
+
+  assert.ok(results[0].error instanceof CodexcwError)
+  assert.equal(results[0].error.kind, 'invalidRequest')
+  assert.match(results[0].error.message, /unknown sandbox mode: bogus/)
+  assert.equal(results[0].result, null)
+
+  assert.equal(results[1].error, null)
+  assert.equal(results[1].result.finalMessage, 'Oi.')
+
+  assert.ok(results[2].error instanceof CodexcwError)
+  assert.equal(results[2].error.kind, 'invalidRequest')
+  assert.match(results[2].error.message, /unknown approval policy: bogus/)
+  assert.equal(results[2].result, null)
+})
+
 test('getAccountUsage reads account limits', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'codexcw-usage-'))
   const fake = join(dir, 'codex')
@@ -396,6 +427,43 @@ done
       return true
     },
   )
+})
+
+const invalidAccountUsageTimeouts = [
+  -1,
+  -Number.MIN_VALUE,
+  Number.NaN,
+  Number.POSITIVE_INFINITY,
+  Number.NEGATIVE_INFINITY,
+  2 ** 64 * 1000,
+  Number.MAX_VALUE,
+]
+
+test('getAccountUsage rejects invalid timeoutMs values', async () => {
+  for (const timeoutMs of invalidAccountUsageTimeouts) {
+    await assert.rejects(getAccountUsage({ timeoutMs }), (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'invalidRequest')
+      assert.match(
+        err.message,
+        /account usage timeoutMs must be finite, non-negative/,
+      )
+      return true
+    })
+  }
+})
+
+test('getAccountUsageRaw preserves invalid timeoutMs errors', async () => {
+  for (const timeoutMs of invalidAccountUsageTimeouts) {
+    const outcome = await native.getAccountUsageRaw({ timeoutMs })
+
+    assert.equal(outcome.result, undefined)
+    assert.equal(outcome.error.kind, 'invalidRequest')
+    assert.match(
+      outcome.error.message,
+      /account usage timeoutMs must be finite, non-negative/,
+    )
+  }
 })
 
 test('ESM entrypoint re-exports account usage helpers', async () => {

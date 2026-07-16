@@ -106,9 +106,12 @@ impl Runner {
     pub async fn run_many(&self, reqs: Vec<Request>, opts: ManyOptions) -> Group {
         let event_buffer = opts.event_buffer.unwrap_or(self.event_buffer()).max(1);
         let max_concurrent = opts.max_concurrent.max(1);
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (tx, rx) = mpsc::channel(event_buffer);
         let cancel = CancellationToken::new();
         let completion = Arc::new(Latch::new());
+
+        tokio::spawn(forward_events(event_rx, tx, cancel.clone()));
 
         let runner = self.clone();
         let task_cancel = cancel.clone();
@@ -120,7 +123,7 @@ impl Runner {
                 reqs,
                 max_concurrent,
                 run_opts,
-                tx,
+                event_tx,
                 task_cancel,
                 task_completion,
             )
@@ -140,7 +143,7 @@ async fn run_many_inner(
     reqs: Vec<Request>,
     max_concurrent: usize,
     run_opts: RunOptions,
-    tx: mpsc::Sender<RunEvent>,
+    event_tx: mpsc::UnboundedSender<RunEvent>,
     cancel: CancellationToken,
     completion: Arc<Latch<Vec<GroupResult>>>,
 ) {
@@ -166,17 +169,17 @@ async fn run_many_inner(
             .await
             .expect("semaphore closed");
         let runner = runner.clone();
-        let tx = tx.clone();
+        let event_tx = event_tx.clone();
         let cancel = cancel.clone();
         let run_opts = run_opts.clone();
         set.spawn(async move {
             let _permit = permit;
-            let result = run_one(runner, index, req, run_opts, tx, cancel).await;
+            let result = run_one(runner, index, req, run_opts, event_tx, cancel).await;
             (index, result)
         });
     }
 
-    drop(tx);
+    drop(event_tx);
 
     while let Some(joined) = set.join_next().await {
         if let Ok((index, result)) = joined {
@@ -200,12 +203,37 @@ async fn run_many_inner(
     completion.set(results);
 }
 
+async fn forward_events(
+    mut source: mpsc::UnboundedReceiver<RunEvent>,
+    destination: mpsc::Sender<RunEvent>,
+    cancel: CancellationToken,
+) {
+    loop {
+        let event = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => break,
+            event = source.recv() => event,
+        };
+        let Some(event) = event else {
+            break;
+        };
+        let sent = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => break,
+            sent = destination.send(event) => sent,
+        };
+        if sent.is_err() {
+            break;
+        }
+    }
+}
+
 async fn run_one(
     runner: Runner,
     index: usize,
     req: Request,
     run_opts: RunOptions,
-    tx: mpsc::Sender<RunEvent>,
+    event_tx: mpsc::UnboundedSender<RunEvent>,
     cancel: CancellationToken,
 ) -> GroupResult {
     let mut session = match runner.start_opts(req, run_opts).await {
@@ -232,13 +260,11 @@ async fn run_one(
             event = session.next_event() => {
                 match event {
                     Some(event) => {
-                        let _ = tx
-                            .send(RunEvent {
-                                run_id: run_id.clone(),
-                                index,
-                                event,
-                            })
-                            .await;
+                        let _ = event_tx.send(RunEvent {
+                            run_id: run_id.clone(),
+                            index,
+                            event,
+                        });
                     }
                     None => break,
                 }

@@ -59,6 +59,10 @@ const (
 	// ItemToolCall carries a generic tool call from the claude agent.
 	ItemToolCall ItemType = "tool_call"
 
+	// ItemCollabToolCall carries a multi-agent collab tool call
+	// (spawn/wait/send between agent threads).
+	ItemCollabToolCall ItemType = "collab_tool_call"
+
 	// ItemError carries an item-scoped Codex error.
 	ItemError ItemType = "error"
 )
