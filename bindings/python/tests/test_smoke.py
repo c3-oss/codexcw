@@ -246,6 +246,18 @@ done
     assert "timeout" in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "timeout",
+    [-1.0, float("nan"), float("inf"), float("-inf"), sys.float_info.max],
+)
+def test_get_account_usage_rejects_invalid_timeout(timeout):
+    with pytest.raises(CodexcwError) as excinfo:
+        get_account_usage(AccountUsageRequest(timeout=timeout))
+
+    assert excinfo.value.kind == "invalidRequest"
+    assert "account usage timeout must be finite, non-negative" in str(excinfo.value)
+
+
 async def test_async_run_and_stream(tmp_path):
     args_file = tmp_path / "args.txt"
     stdin_file = tmp_path / "stdin.txt"
@@ -281,6 +293,18 @@ async def test_async_get_account_usage(tmp_path):
     assert usage.account.email == "stub@example.com"
     assert usage.rate_limits_by_limit_id["spark"].limit_name == "Codex Spark"
     assert usage.token_usage.daily_usage_buckets[0].tokens == "42"
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [-1.0, float("nan"), float("inf"), float("-inf"), sys.float_info.max],
+)
+async def test_async_get_account_usage_rejects_invalid_timeout(timeout):
+    with pytest.raises(CodexcwError) as excinfo:
+        await codexcw.aio.get_account_usage(AccountUsageRequest(timeout=timeout))
+
+    assert excinfo.value.kind == "invalidRequest"
+    assert "account usage timeout must be finite, non-negative" in str(excinfo.value)
 
 
 @pytest.mark.skipif(

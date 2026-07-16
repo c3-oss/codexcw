@@ -420,12 +420,12 @@ struct AccountUsageReqData {
 }
 
 impl AccountUsageReqData {
-    fn into_core(self) -> CoreAccountUsageRequest {
-        CoreAccountUsageRequest {
+    fn into_core(self) -> Result<CoreAccountUsageRequest, PyError> {
+        Ok(CoreAccountUsageRequest {
             executable: self.executable,
             env: self.env.unwrap_or_default().into_iter().collect(),
-            timeout: self.timeout.map(Duration::from_secs_f64),
-        }
+            timeout: self.timeout.map(parse_account_usage_timeout).transpose()?,
+        })
     }
 }
 
@@ -465,6 +465,15 @@ fn invalid_request(message: String) -> PyError {
         stderr: None,
         line: None,
     }
+}
+
+fn parse_account_usage_timeout(timeout: f64) -> Result<Duration, PyError> {
+    Duration::try_from_secs_f64(timeout).map_err(|_| {
+        invalid_request(
+            "account usage timeout must be finite, non-negative, and within the supported duration range"
+                .to_string(),
+        )
+    })
 }
 
 fn to_py_usage(usage: &Usage) -> PyUsage {
@@ -691,7 +700,15 @@ fn to_py_account_usage(usage: &CoreAccountUsage) -> PyAccountUsage {
 #[pyfunction]
 #[pyo3(signature = (req=None))]
 fn get_account_usage(py: Python<'_>, req: Option<AccountUsageReqData>) -> PyAccountUsageOutcome {
-    let core_req = req.map(AccountUsageReqData::into_core).unwrap_or_default();
+    let core_req = match req.map(AccountUsageReqData::into_core).transpose() {
+        Ok(req) => req.unwrap_or_default(),
+        Err(error) => {
+            return PyAccountUsageOutcome {
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
     let result = py.detach(|| runtime().block_on(core_get_account_usage(core_req)));
     match result {
         Ok(usage) => PyAccountUsageOutcome {
