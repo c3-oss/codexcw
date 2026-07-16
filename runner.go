@@ -444,8 +444,8 @@ scan:
 		session.cancel()
 	}
 
-	waitErr := cmd.Wait()
 	<-stderrDone
+	waitErr := cmd.Wait()
 	if cleanup != nil {
 		cleanup()
 	}
