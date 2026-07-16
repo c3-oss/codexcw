@@ -56,6 +56,28 @@ impl std::fmt::Display for ApprovalPolicy {
     }
 }
 
+/// Model aliases accepted by the claude agent's `--model` flag.
+pub mod claude_model {
+    /// The latest Claude Haiku model.
+    pub const HAIKU: &str = "haiku";
+    /// The latest Claude Sonnet model.
+    pub const SONNET: &str = "sonnet";
+    /// The latest Claude Opus model.
+    pub const OPUS: &str = "opus";
+}
+
+/// Permission modes accepted by the claude agent's `--permission-mode` flag.
+pub mod permission_mode {
+    /// Auto-approve file edits inside the workspace.
+    pub const ACCEPT_EDITS: &str = "acceptEdits";
+    /// Skip all permission checks.
+    pub const BYPASS_PERMISSIONS: &str = "bypassPermissions";
+    /// Keep Claude in read-only planning mode.
+    pub const PLAN: &str = "plan";
+    /// Deny any action that would prompt for approval.
+    pub const DONT_ASK: &str = "dontAsk";
+}
+
 /// One `-c key=value` config override.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConfigOverride {
@@ -105,10 +127,16 @@ pub struct Request {
     pub model: Option<String>,
     /// Codex config profile.
     pub profile: Option<String>,
-    /// Sandbox policy override.
+    /// Sandbox policy override (codex agent only).
     pub sandbox: Option<SandboxMode>,
-    /// Approval policy override.
+    /// Approval policy override (codex agent only).
     pub approval: Option<ApprovalPolicy>,
+    /// Claude permission mode (claude agent only). See [`permission_mode`].
+    pub permission_mode: Option<String>,
+    /// Tool patterns Claude may use without prompting (claude agent only).
+    pub allowed_tools: Vec<String>,
+    /// Tool patterns denied to Claude (claude agent only).
+    pub disallowed_tools: Vec<String>,
     /// Raw `-c` config overrides.
     pub config: Vec<ConfigOverride>,
     /// Feature flags passed with `--enable`.

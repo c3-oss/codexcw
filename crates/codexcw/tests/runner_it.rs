@@ -308,3 +308,110 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
         .expect("second result");
     assert!(matches!(failed.error, Some(Error::PromptRequired)));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn claude_run_normalizes_events() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat > "$CODEXCW_STDIN_FILE"
+printf '%s\n' '{"type":"system","subtype":"init","cwd":"/work","session_id":"sess-1"}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"toolu_1","name":"Write","input":{"file_path":"/work/hello.txt","content":"hello"}}]},"session_id":"sess-1"}'
+printf '%s\n' '{"type":"rate_limit_event","session_id":"sess-1"}'
+printf '%s\n' '{"type":"user","message":{"content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"File created successfully"}]},"session_id":"sess-1","tool_use_result":{"type":"create"}}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"Done."}]},"session_id":"sess-1"}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"Done.","session_id":"sess-1","usage":{"input_tokens":18,"cache_read_input_tokens":45921,"output_tokens":380}}'
+"#,
+    );
+
+    let runner = Runner::builder()
+        .agent(codexcw::Agent::Claude)
+        .executable(fake.executable())
+        .env("CODEXCW_ARGS_FILE", fake.args_file.to_str().unwrap())
+        .env("CODEXCW_STDIN_FILE", fake.stdin_file.to_str().unwrap())
+        .build();
+
+    let result = runner
+        .run(Request {
+            prompt: "create hello.txt".to_string(),
+            model: Some(codexcw::claude_model::HAIKU.to_string()),
+            ..Default::default()
+        })
+        .await
+        .expect("run succeeds");
+
+    assert_eq!(result.thread_id, "sess-1");
+    assert_eq!(result.final_message, "Done.");
+    assert_eq!(result.usage.input_tokens, 18);
+    assert_eq!(result.usage.cached_input_tokens, 45921);
+    assert_eq!(result.usage.output_tokens, 380);
+
+    let kinds: Vec<String> = result
+        .events
+        .iter()
+        .map(|e| e.kind.as_str().to_string())
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "thread.started",
+            "turn.started",
+            "item.started",
+            "rate_limit_event",
+            "item.completed",
+            "item.completed",
+            "turn.completed",
+        ]
+    );
+    for event in &result.events {
+        assert_eq!(event.thread_id, "sess-1");
+        assert!(!event.raw.is_empty());
+    }
+
+    let file_change = result.events[4].item_completed().unwrap();
+    assert_eq!(file_change.kind, codexcw::ItemKind::FileChange);
+    assert_eq!(file_change.changes[0].kind, "add");
+    assert_eq!(file_change.aggregated_output, "File created successfully");
+
+    let stdin = std::fs::read_to_string(&fake.stdin_file).unwrap();
+    assert_eq!(stdin, "create hello.txt");
+
+    let args = read_args(&fake.args_file);
+    assert_eq!(args[0], "-p");
+    for want in [
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        "haiku",
+        "--no-session-persistence",
+    ] {
+        assert!(args.contains(&want.to_string()), "missing arg: {want}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn claude_error_result_returns_codex_error() {
+    let fake = write_fake_codex(
+        r#"record_args "$@"
+cat >/dev/null
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-err"}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"result":"issue with the selected model","session_id":"sess-err"}'
+exit 1
+"#,
+    );
+
+    let runner = Runner::builder()
+        .agent(codexcw::Agent::Claude)
+        .executable(fake.executable())
+        .build();
+
+    let error = runner.run(Request::new("hi")).await.expect_err("run fails");
+
+    match error {
+        Error::Codex { message, event } => {
+            assert!(message.contains("issue with the selected model"));
+            assert!(matches!(event.payload, EventPayload::TurnFailed { .. }));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}

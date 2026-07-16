@@ -51,6 +51,7 @@ pub(crate) const DEFAULT_EXECUTABLE: &str = "codex";
 
 mod account_usage;
 mod args;
+mod claude;
 mod decoder;
 mod error;
 mod event;
@@ -71,6 +72,8 @@ pub use event::{
     Usage,
 };
 pub use group::{Group, GroupResult, ManyOptions, RunEvent};
-pub use request::{ApprovalPolicy, ConfigOverride, Request, SandboxMode};
-pub use runner::{handler, Handler, RunOptions, Runner, RunnerBuilder};
+pub use request::{
+    claude_model, permission_mode, ApprovalPolicy, ConfigOverride, Request, SandboxMode,
+};
+pub use runner::{handler, Agent, Handler, RunOptions, Runner, RunnerBuilder};
 pub use session::{RunResult, Session};

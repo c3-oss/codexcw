@@ -80,6 +80,8 @@ pub enum ItemKind {
     WebSearch,
     /// `plan_update` — a Codex plan update.
     PlanUpdate,
+    /// `tool_call` — a generic tool call from the claude agent.
+    ToolCall,
     /// `error` — an item-scoped Codex error.
     Error,
     /// An item type not yet modelled by this crate.
@@ -97,6 +99,7 @@ impl ItemKind {
             ItemKind::McpToolCall => "mcp_tool_call",
             ItemKind::WebSearch => "web_search",
             ItemKind::PlanUpdate => "plan_update",
+            ItemKind::ToolCall => "tool_call",
             ItemKind::Error => "error",
             ItemKind::Other(value) => value,
         }
@@ -111,6 +114,7 @@ impl ItemKind {
             "mcp_tool_call" => ItemKind::McpToolCall,
             "web_search" => ItemKind::WebSearch,
             "plan_update" => ItemKind::PlanUpdate,
+            "tool_call" => ItemKind::ToolCall,
             "error" => ItemKind::Error,
             other => ItemKind::Other(other.to_string()),
         }
