@@ -6,9 +6,11 @@ Read this end-to-end before proposing substantial changes.
 ## Project shape
 
 A polyglot monorepo: **four independent, idiomatic implementations** of the same
-`codex exec --json` wrapper. There is **no FFI between Go and the Rust side** —
-each implementation is native to its ecosystem; they share a repo so the spec and
-test fixtures stay a single source of truth.
+agent CLI wrapper — `codex exec --json` by default, with a selectable `claude`
+agent that wraps `claude -p --output-format stream-json` and normalizes its
+events into the shared event model. There is **no FFI between Go and the Rust
+side** — each implementation is native to its ecosystem; they share a repo so
+the spec and test fixtures stay a single source of truth.
 
 - **Go (root)** — the public Go library `github.com/c3-oss/codexcw`. Go module at
   the repo root (`go.mod`), CGO-free. Root `*.go`, `cmd/codexcw/` (example CLI),

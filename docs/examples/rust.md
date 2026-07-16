@@ -289,6 +289,68 @@ runner.run(Request {
 }).await?;
 ```
 
+## Claude Code agent
+
+The runner also wraps Claude Code's non-interactive mode
+(`claude -p --output-format stream-json`). Select it on the builder; the
+`claude` executable must be on `PATH` and authenticated. Events are normalized
+into the same [`Event`] model — `thread.started` carries the Claude session
+id, tool calls become `item.started`/`item.completed` pairs, and the final
+`result` maps to `turn.completed` — with `raw` always keeping the original
+Claude JSON line.
+
+```rust
+use codexcw::{claude_model, permission_mode, Agent, Request, Runner};
+
+let runner = Runner::builder().agent(Agent::Claude).build();
+
+let result = runner
+    .run(Request {
+        prompt: "crie um arquivo TODO.md".to_string(),
+        model: Some(claude_model::HAIKU.to_string()), // HAIKU, SONNET, or OPUS
+        permission_mode: Some(permission_mode::ACCEPT_EDITS.to_string()),
+        ..Default::default()
+    })
+    .await?;
+```
+
+```rust
+// Tool filters and resume work per request:
+let _ = runner
+    .run(Request {
+        prompt: "rode os testes".to_string(),
+        model: Some(claude_model::SONNET.to_string()),
+        allowed_tools: vec!["Bash(cargo test *)".to_string(), "Read".to_string()],
+        disallowed_tools: vec!["WebSearch".to_string()],
+        ..Default::default()
+    })
+    .await;
+
+let first = runner
+    .run(Request {
+        prompt: "lembre disto".to_string(),
+        persistent: true,
+        ..Default::default()
+    })
+    .await?;
+let _ = runner
+    .run(Request {
+        prompt: "continue".to_string(),
+        resume_id: Some(first.thread_id.clone()), // or resume_last: true
+        persistent: true,
+        ..Default::default()
+    })
+    .await;
+```
+
+Claude runs support `dir` (applied as the process working directory),
+`add_dirs`, `output_schema`/`output_schema_path` (passed as `--json-schema`),
+and `dangerously_bypass_sandbox` (passed as
+`--dangerously-skip-permissions`). `permission_mode`, `allowed_tools`, and
+`disallowed_tools` are claude-only; codex-only fields (`sandbox`, `approval`,
+`profile`, `config`, `images`, feature flags) return
+`Error::InvalidRequest` on a claude runner.
+
 ## Stdin input
 
 ```rust

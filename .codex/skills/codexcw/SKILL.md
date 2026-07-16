@@ -7,6 +7,8 @@ description: Run Codex non-interactively from Go, Rust, Node.js, or Python using
 
 `codexcw` wraps `codex exec --json`: it spawns Codex, decodes the JSONL event
 stream, and exposes each run as streams, callbacks, results, and typed errors.
+A selectable `claude` agent wraps `claude -p --output-format stream-json`
+instead, normalizing Claude Code's events into the same event model.
 It ships as four independent, idiomatic implementations of the same contract —
 pick the one matching your host language.
 

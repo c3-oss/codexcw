@@ -15,6 +15,11 @@ npm install @c3-oss/codexcw
 The `codex` executable must be on `PATH`, authenticated, and new enough to
 support `codex exec --json`.
 
+Runners can alternatively wrap Claude Code: `new Runner({ agent: 'claude' })`
+spawns `claude -p --output-format stream-json` and normalizes its events into
+the same event model, with model selection via the `haiku`/`sonnet`/`opus`
+aliases (`ClaudeModel`).
+
 ## Usage
 
 The API is async-only: every call returns a `Promise`, and event streams are

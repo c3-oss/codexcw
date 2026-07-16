@@ -280,6 +280,50 @@ _, _ = runner.Run(ctx, codexcw.Request{
 })
 ```
 
+## Claude Code agent
+
+The runner also wraps Claude Code's non-interactive mode
+(`claude -p --output-format stream-json`). Select it with `WithAgent`; the
+`claude` executable must be on `PATH` and authenticated. Events are normalized
+into the same `Event` model — `thread.started` carries the Claude session id,
+tool calls become `item.started`/`item.completed` pairs, and the final
+`result` maps to `turn.completed` — with `Raw` always keeping the original
+Claude JSON line.
+
+```go
+runner := codexcw.New(codexcw.WithAgent(codexcw.AgentClaude))
+
+result, err := runner.Run(ctx, codexcw.Request{
+	Prompt:         "crie um arquivo TODO.md",
+	Model:          codexcw.ClaudeModelHaiku, // "haiku", "sonnet", or "opus"
+	PermissionMode: codexcw.PermissionAcceptEdits,
+})
+```
+
+```go
+// Tool filters, structured output, and resume work per request:
+_, _ = runner.Run(ctx, codexcw.Request{
+	Prompt:          "rode os testes",
+	Model:           codexcw.ClaudeModelSonnet,
+	AllowedTools:    []string{"Bash(go test *)", "Read"},
+	DisallowedTools: []string{"WebSearch"},
+})
+
+first, _ := runner.Run(ctx, codexcw.Request{Prompt: "lembre disto", Persistent: true})
+_, _ = runner.Run(ctx, codexcw.Request{
+	Prompt:     "continue",
+	ResumeID:   first.ThreadID, // or ResumeLast: true
+	Persistent: true,
+})
+```
+
+Claude runs support `Dir` (applied as the process working directory),
+`AddDirs`, `OutputSchema`/`OutputSchemaPath` (passed as `--json-schema`), and
+`DangerouslyBypassSandbox` (passed as `--dangerously-skip-permissions`).
+`PermissionMode`, `AllowedTools`, and `DisallowedTools` are claude-only;
+codex-only fields (`Sandbox`, `Approval`, `Profile`, `Config`, `Images`,
+feature flags) return `ErrInvalidRequest` on a claude runner.
+
 ## Stdin input
 
 ```go

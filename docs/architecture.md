@@ -11,6 +11,12 @@ The core is an async (tokio) library that owns all behavior:
   faithfully reproducing flag order, the sandbox/approval config quoting, and the
   prompt/stdin wrapping. Inline output schemas are written to a temp file that is
   deleted when the run ends.
+- **`claude`** implements the claude agent: it builds the
+  `claude -p --output-format stream-json` argv and statefully normalizes the
+  Claude event stream into the shared `Event` model (init becomes
+  `thread.started` + `turn.started`, tool_use/tool_result pairs become
+  `item.started`/`item.completed`, the final result becomes `turn.completed`
+  or `turn.failed`), keeping the original Claude JSON in `raw`.
 - **`decoder` / `event`** parse each JSONL line into a typed `Event` while keeping
   the original JSON text in `raw` for forward compatibility. Unknown event and
   item types are preserved rather than dropped.

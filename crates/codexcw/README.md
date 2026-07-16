@@ -9,6 +9,12 @@ enough to support `codex exec --json`. Defaults are automation-friendly: JSONL
 streaming, ephemeral sessions, read-only sandbox, approval policy `never`, color
 disabled, and the Git repository check skipped.
 
+Runners can alternatively wrap Claude Code:
+`Runner::builder().agent(Agent::Claude)` spawns
+`claude -p --output-format stream-json` and normalizes its events into the
+same `Event` model, with model selection via the `haiku`/`sonnet`/`opus`
+aliases (`claude_model`).
+
 ## Usage
 
 ```rust,no_run

@@ -253,6 +253,59 @@ runner.run(req)
 await runner.run(req)
 ```
 
+## Claude Code agent
+
+The runner also wraps Claude Code's non-interactive mode
+(`claude -p --output-format stream-json`). Select it with the `agent` keyword;
+the `claude` executable must be on `PATH` and authenticated. Events are
+normalized into the same event model — `thread.started` carries the Claude
+session id, tool calls become `item.started`/`item.completed` pairs, and the
+final `result` maps to `turn.completed` — with `raw` always keeping the
+original Claude JSON line.
+
+```python
+import codexcw
+
+runner = codexcw.Runner(agent=codexcw.AGENT_CLAUDE)
+
+result = runner.run(
+    codexcw.Request(
+        prompt="crie um arquivo TODO.md",
+        model=codexcw.CLAUDE_MODEL_HAIKU,  # "haiku", "sonnet", or "opus"
+        permission_mode=codexcw.PERMISSION_ACCEPT_EDITS,
+    )
+)
+```
+
+```python
+# Tool filters and resume work per request:
+runner.run(
+    codexcw.Request(
+        prompt="rode os testes",
+        model=codexcw.CLAUDE_MODEL_SONNET,
+        allowed_tools=["Bash(pytest *)", "Read"],
+        disallowed_tools=["WebSearch"],
+    )
+)
+
+first = runner.run(codexcw.Request(prompt="lembre disto", persistent=True))
+runner.run(
+    codexcw.Request(
+        prompt="continue",
+        resume_id=first.thread_id,  # or resume_last=True
+        persistent=True,
+    )
+)
+```
+
+Claude runs support `dir` (applied as the process working directory),
+`add_dirs`, `output_schema`/`output_schema_path` (passed as `--json-schema`),
+and `dangerously_bypass_sandbox` (passed as
+`--dangerously-skip-permissions`). `permission_mode`, `allowed_tools`, and
+`disallowed_tools` are claude-only; codex-only fields (`sandbox`, `approval`,
+`profile`, `config`, `images`, feature flags) raise a typed
+`invalidRequest` error on a claude runner.
+
 ## Stdin input
 
 ```python

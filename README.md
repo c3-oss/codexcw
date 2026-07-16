@@ -25,6 +25,12 @@ support `codex exec --json`. Defaults are automation-friendly: JSONL streaming,
 ephemeral sessions, read-only sandbox, approval policy `never`, color disabled,
 and the Git repository check skipped.
 
+Runners can alternatively wrap **Claude Code**: selecting the `claude` agent
+spawns `claude -p --output-format stream-json` and normalizes its events into
+the same event model, with model selection between the `haiku`, `sonnet`, and
+`opus` aliases. See the per-language examples in
+[`docs/examples/`](docs/examples/).
+
 Account token usage and limits are available through separate helpers
 (`GetAccountUsage`, `get_account_usage`, `getAccountUsage`) that call
 `codex app-server --stdio`. They accept a custom executable, environment, and
