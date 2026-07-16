@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,6 +140,22 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 	assert.Contains(t, result.Stderr, "successful stderr detail")
 }
 
+func TestDescendantHoldingStderrIsBounded(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+sleep 3 >/dev/null &
+printf '%s\n' 'parent stderr detail' >&2
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-descendant"}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`)
+
+	result, err := New(WithExecutable(fake)).Run(context.Background(), Request{Prompt: "ok"})
+	require.ErrorIs(t, err, exec.ErrWaitDelay)
+	require.NotNil(t, result)
+	assert.Contains(t, result.Stderr, "parent stderr detail")
+}
+
 func TestCancellationCapturesStderr(t *testing.T) {
 	fake := writeFakeCodex(t, `
 record_args "$@"
@@ -156,6 +174,30 @@ while :; do :; done
 	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, result)
 	assert.Contains(t, result.Stderr, "cancelled stderr detail")
+}
+
+func TestCancellationWithDescendantHoldingStderrIsBounded(t *testing.T) {
+	fake := writeFakeCodex(t, `
+record_args "$@"
+cat >/dev/null
+sleep 3 >/dev/null &
+printf '%s\n' 'cancelled descendant stderr detail' >&2
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-cancel-descendant"}'
+while :; do :; done
+`)
+
+	session, err := New(WithExecutable(fake)).Start(context.Background(), Request{Prompt: "cancel"})
+	require.NoError(t, err)
+	require.Equal(t, EventThreadStarted, (<-session.Events()).Type)
+
+	startedAt := time.Now()
+	require.NoError(t, session.Cancel())
+	result, err := session.Wait()
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotNil(t, result)
+	assert.Less(t, time.Since(startedAt), 2500*time.Millisecond)
+	assert.Contains(t, result.Stderr, "cancelled descendant stderr detail")
 }
 
 func TestLargeStderrOutputPreservesTail(t *testing.T) {

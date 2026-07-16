@@ -264,11 +264,9 @@ func (r *Runner) Start(ctx context.Context, req Request, opts ...RunOption) (*Se
 		cancel()
 		return nil, err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
+	stderrTail := newTailBuffer(r.stderrLimit)
+	cmd.Stderr = stderrTail
+	cmd.WaitDelay = time.Second
 
 	runID := newRunID()
 	session := &Session{
@@ -286,14 +284,7 @@ func (r *Runner) Start(ctx context.Context, req Request, opts ...RunOption) (*Se
 		return nil, err
 	}
 
-	stderrTail := newTailBuffer(r.stderrLimit)
-	stderrDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(stderrTail, stderr)
-		close(stderrDone)
-	}()
-
-	go r.collect(runCtx, session, cmd, stdout, stderrTail, stderrDone, cleanup, cfg.handler)
+	go r.collect(runCtx, session, cmd, stdout, stderrTail, cleanup, cfg.handler)
 
 	return session, nil
 }
@@ -315,7 +306,6 @@ func (r *Runner) collect(
 	cmd *exec.Cmd,
 	stdout io.Reader,
 	stderrTail *tailBuffer,
-	stderrDone <-chan struct{},
 	cleanup func(),
 	handler Handler,
 ) {
@@ -388,7 +378,6 @@ func (r *Runner) collect(
 		session.cancel()
 	}
 
-	<-stderrDone
 	waitErr := cmd.Wait()
 	if cleanup != nil {
 		cleanup()
