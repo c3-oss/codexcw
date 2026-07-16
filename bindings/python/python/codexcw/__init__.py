@@ -28,9 +28,12 @@ from ._codexcw import PyAccountTokenUsageDailyBucket as AccountTokenUsageDailyBu
 from ._codexcw import PyAccountTokenUsageSummary as AccountTokenUsageSummary
 from ._codexcw import PyAccountUsage as AccountUsage
 from ._codexcw import PyAccountUsageAccount as AccountUsageAccount
+from ._codexcw import PyClaudeAccountUsage as ClaudeAccountUsage
+from ._codexcw import PyClaudeAccountUsageWindow as ClaudeAccountUsageWindow
 from ._codexcw import PyEvent as Event
 from ._codexcw import PyFileChange as FileChange
 from ._codexcw import PyItem as Item
+from ._codexcw import PyModelUsage as ModelUsage
 from ._codexcw import PyRunEvent as RunEvent
 from ._codexcw import PyRunResult as RunResult
 from ._codexcw import PyUsage as Usage
@@ -41,9 +44,14 @@ __all__ = [
     "CLAUDE_MODEL_HAIKU",
     "CLAUDE_MODEL_OPUS",
     "CLAUDE_MODEL_SONNET",
+    "ClaudeAccountUsage",
+    "ClaudeAccountUsageRequest",
+    "ClaudeAccountUsageWindow",
     "PERMISSION_ACCEPT_EDITS",
+    "PERMISSION_AUTO",
     "PERMISSION_BYPASS_PERMISSIONS",
     "PERMISSION_DONT_ASK",
+    "PERMISSION_MANUAL",
     "PERMISSION_PLAN",
     "Agent",
     "PermissionMode",
@@ -65,6 +73,7 @@ __all__ = [
     "Group",
     "GroupResult",
     "Item",
+    "ModelUsage",
     "Request",
     "RunEvent",
     "RunResult",
@@ -73,6 +82,7 @@ __all__ = [
     "Session",
     "Usage",
     "get_account_usage",
+    "get_claude_account_usage",
 ]
 
 # String literals accepted by ``Request.sandbox`` and ``Request.approval``.
@@ -94,16 +104,19 @@ CLAUDE_MODEL_OPUS = "opus"
 
 # Permission modes accepted by the claude agent's ``Request.permission_mode``.
 PERMISSION_ACCEPT_EDITS = "acceptEdits"
+PERMISSION_AUTO = "auto"
 PERMISSION_BYPASS_PERMISSIONS = "bypassPermissions"
+PERMISSION_MANUAL = "manual"
 PERMISSION_PLAN = "plan"
 PERMISSION_DONT_ASK = "dontAsk"
 
 
 class CodexcwError(Exception):
-    """A typed Codex run error.
+    """A typed agent run error.
 
     The ``kind`` attribute is one of ``promptRequired``, ``invalidRequest``,
-    ``exit``, ``decode``, ``codex``, ``handler``, ``cancelled``, ``process``.
+    ``exit``, ``decode``, ``codex``, ``claude``, ``handler``, ``cancelled``,
+    ``process``.
     """
 
     def __init__(self, info: "_codexcw.PyError") -> None:
@@ -120,7 +133,7 @@ def _result_or_raise(outcome):
     return outcome.result
 
 
-def _account_usage_or_raise(outcome: "_codexcw.PyAccountUsageOutcome") -> AccountUsage:
+def _account_usage_or_raise(outcome):
     result = _result_or_raise(outcome)
     if result is None:
         raise CodexcwError(
@@ -163,8 +176,28 @@ def get_account_usage(req: Optional[AccountUsageRequest] = None) -> AccountUsage
 
 
 @dataclass
+class ClaudeAccountUsageRequest:
+    """Options for reading Claude account usage.
+
+    ``timeout`` bounds the Claude CLI call in seconds.
+    """
+
+    executable: Optional[str] = None
+    env: Optional[dict] = None
+    timeout: Optional[float] = None
+
+
+def get_claude_account_usage(
+    req: Optional[ClaudeAccountUsageRequest] = None,
+) -> ClaudeAccountUsage:
+    """Reads Claude account usage through the Claude Code ``/usage`` command."""
+
+    return _account_usage_or_raise(_codexcw.get_claude_account_usage(req))
+
+
+@dataclass
 class Request:
-    """A Codex run request. All fields are optional except prompt or stdin."""
+    """An agent run request. All fields are optional except prompt or stdin."""
 
     prompt: str = ""
     stdin: Optional[str] = None
@@ -208,7 +241,7 @@ class GroupResult:
 
 
 class Session:
-    """A running ``codex exec`` process."""
+    """A running selected-agent process."""
 
     def __init__(self, native) -> None:
         self._native = native
@@ -233,7 +266,7 @@ class Session:
 
 
 class Group:
-    """A batch of running ``codex exec`` processes."""
+    """A batch of running selected-agent processes."""
 
     def __init__(self, native) -> None:
         self._native = native
@@ -258,7 +291,7 @@ class Group:
 
 
 class Runner:
-    """Starts ``codex exec`` processes with safe automation defaults."""
+    """Starts selected-agent processes with safe automation defaults."""
 
     def __init__(
         self,
@@ -272,6 +305,16 @@ class Runner:
         default_sandbox: Optional[SandboxMode] = None,
         default_approval: Optional[ApprovalPolicy] = None,
     ) -> None:
+        if agent is not None and agent not in (AGENT_CODEX, AGENT_CLAUDE):
+            raise CodexcwError(
+                SimpleNamespace(
+                    kind="invalidRequest",
+                    message=f"unknown agent: {agent}",
+                    code=None,
+                    stderr=None,
+                    line=None,
+                )
+            )
         self._native = _codexcw.Runner(
             executable=executable,
             env=env,

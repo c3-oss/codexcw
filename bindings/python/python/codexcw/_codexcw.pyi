@@ -2,12 +2,25 @@
 
 from typing import Iterator, List, Optional
 
+class PyModelUsage:
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
+    web_search_requests: int
+    cost_usd: float
+    context_window: int
+    max_output_tokens: int
+
 class PyUsage:
     input_tokens: int
     cached_input_tokens: int
+    cache_creation_input_tokens: int
     output_tokens: int
     reasoning_output_tokens: int
     total_tokens: int
+    total_cost_usd: float
+    model_usage: dict[str, PyModelUsage]
 
 class PyFileChange:
     path: str
@@ -115,6 +128,20 @@ class PyAccountUsageOutcome:
     result: Optional[PyAccountUsage]
     error: Optional[PyError]
 
+class PyClaudeAccountUsageWindow:
+    label: str
+    used_percent: float
+    resets_at: str
+
+class PyClaudeAccountUsage:
+    report: str
+    windows: List[PyClaudeAccountUsageWindow]
+    raw: str
+
+class PyClaudeAccountUsageOutcome:
+    result: Optional[PyClaudeAccountUsage]
+    error: Optional[PyError]
+
 class PyRunEvent:
     run_id: str
     index: int
@@ -165,3 +192,4 @@ class Runner:
     ) -> Group: ...
 
 def get_account_usage(req: object = ...) -> PyAccountUsageOutcome: ...
+def get_claude_account_usage(req: object = ...) -> PyClaudeAccountUsageOutcome: ...
