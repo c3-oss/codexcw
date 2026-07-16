@@ -20,7 +20,11 @@ contract — there is no FFI between them; each is native to its ecosystem:
 
 The Go library lives at the repo root; the Rust core is in `crates/codexcw`;
 the npm + PyPI bindings (backed by that Rust core) are in `bindings/`; and the
-.NET port is in `dotnet/`.
+.NET port is in `dotnet/`. Each registry is fed by its own release train
+(`v*`, `rust-v*`, `node-v*`, `py-v*`, `dotnet-v*`); a package version exists
+on its registry once the matching tag has been released — until then, build
+from the repository (for .NET, a project reference to
+`dotnet/Codexcw/Codexcw.csproj`).
 
 Two agents share the same event model:
 
@@ -131,7 +135,7 @@ var result = await runner.RunAsync(new Request { Prompt = "diga oi" });
 Console.WriteLine(result.FinalMessage);
 
 // Streaming
-var session = runner.Start(new Request { Prompt = "resuma este repo" });
+using var session = runner.Start(new Request { Prompt = "resuma este repo" });
 await foreach (var evt in session.Events())
 {
     if (evt.ItemCompleted?.Item is { Kind: ItemKind.AgentMessage } item)

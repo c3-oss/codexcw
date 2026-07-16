@@ -9,8 +9,9 @@ Defaults are automation-friendly: JSONL streaming, ephemeral sessions,
 read-only sandbox, approval policy `never`, color disabled, and the Git
 repository check skipped.
 
-The `codex` (or `claude`) executable must be available on `PATH`,
-authenticated, and new enough to support `codex exec --json`.
+The selected agent's executable must be available on `PATH`, authenticated,
+and new enough for the wrapped mode: `codex` must support `codex exec --json`,
+and `claude` must support `--output-format stream-json`.
 
 ## Quickstart
 
@@ -25,7 +26,7 @@ Console.WriteLine(result.FinalMessage);
 ## Streaming
 
 ```csharp
-var session = runner.Start(new Request { Prompt = "summarize this repo" });
+using var session = runner.Start(new Request { Prompt = "summarize this repo" });
 await foreach (var evt in session.Events())
 {
     if (evt.ItemCompleted?.Item is { Kind: ItemKind.AgentMessage } item)

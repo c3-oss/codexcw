@@ -1,10 +1,16 @@
 # codexcw — C# examples
 
-The .NET library lives in `dotnet/Codexcw` and ships on NuGet as
-`C3OSS.Codexcw` (namespace `C3OSS.Codexcw`).
+The .NET library lives in `dotnet/Codexcw` and is published to NuGet as
+`C3OSS.Codexcw` (namespace `C3OSS.Codexcw`) by the `dotnet-v*` release train.
 
 ```bash
 dotnet add package C3OSS.Codexcw
+```
+
+To build against the repository directly, reference the project instead:
+
+```bash
+dotnet add reference path/to/codexcw/dotnet/Codexcw/Codexcw.csproj
 ```
 
 Runners drive Codex (the default agent) or Claude Code; the selected agent's
@@ -36,7 +42,7 @@ Console.WriteLine(result.FinalMessage);
 
 ```csharp
 // Streaming: consume events live, then collect the result.
-var session = runner.Start(new Request { Prompt = "resuma este repo" });
+using var session = runner.Start(new Request { Prompt = "resuma este repo" });
 
 await foreach (var evt in session.Events())
 {
@@ -51,9 +57,11 @@ Console.WriteLine($"usage: {result.Usage.TotalTokens}");
 ```
 
 The event stream is single-consumer, and waiting never depends on it: calling
-`WaitAsync` without reading `Events()` is safe. The recipes below use
-`RunAsync` for brevity; swap in the `Start` pattern above to consume events
-live.
+`WaitAsync` without reading `Events()` is safe. `Session` and `Group` are
+disposable: `Dispose` cancels anything still active and releases the run's
+resources, and `await using` (`DisposeAsync`) additionally waits for the
+internal tasks to finish. The recipes below use `RunAsync` for brevity; swap
+in the `Start` pattern above to consume events live.
 
 ## Per-event callback
 
@@ -98,27 +106,40 @@ catch (HandlerException ex)
 
 ## Resume a session
 
-Codex sessions are resumable by thread id. Run once, capture
-`result.ThreadId`, then continue the same thread with `ResumeId`.
+Codex sessions are resumable by thread id, but only persisted ones: runs are
+ephemeral by default (`--ephemeral`), so both the original run and the resume
+need `Persistent = true`. Run once, capture `result.ThreadId`, then continue
+the same thread with `ResumeId`.
 
 ```csharp
-var first = await runner.RunAsync(new Request { Prompt = "crie um arquivo TODO.md" });
+var first = await runner.RunAsync(new Request
+{
+    Prompt = "crie um arquivo TODO.md",
+    Persistent = true,
+});
 var threadId = first.ThreadId;
 
 var second = await runner.RunAsync(new Request
 {
     Prompt = "agora adicione 3 itens ao TODO.md",
     ResumeId = threadId,
+    Persistent = true,
 });
 Console.WriteLine(second.FinalMessage);
 ```
 
 ```csharp
-// Resume the most recent thread instead of tracking ids yourself.
-await runner.RunAsync(new Request { Prompt = "continue", ResumeLast = true });
+// Resume the most recent persisted thread instead of tracking ids yourself.
+await runner.RunAsync(new Request { Prompt = "continue", ResumeLast = true, Persistent = true });
 
 // ResumeAll disables Codex's cwd filtering while resuming.
-await runner.RunAsync(new Request { Prompt = "continue", ResumeId = threadId, ResumeAll = true });
+await runner.RunAsync(new Request
+{
+    Prompt = "continue",
+    ResumeId = threadId,
+    ResumeAll = true,
+    Persistent = true,
+});
 ```
 
 > Resume runs do **not** accept `Dir`, `AddDirs`, or `Profile` — setting them
@@ -178,7 +199,7 @@ await runner.RunAsync(new Request
 ## Run many with bounded concurrency
 
 ```csharp
-var group = runner.RunMany(
+using var group = runner.RunMany(
     [
         new Request { Prompt = "review package A" },
         new Request { Prompt = "review package B" },
@@ -268,11 +289,15 @@ await runner.RunAsync(new Request
 
 ## Model and profile
 
+Model availability depends on how the `codex` CLI is authenticated (a ChatGPT
+account exposes a different set than an API key); a request for an unavailable
+model fails the run with a Codex error event.
+
 ```csharp
 await runner.RunAsync(new Request
 {
     Prompt = "...",
-    Model = "o3",
+    Model = "gpt-5.4-mini",
     Profile = "work",
 });
 ```
@@ -406,7 +431,10 @@ JSON-RPC error; transport errors and timeouts fail the whole call.
 ## Error handling
 
 Failures are typed exceptions rooted at `CodexcwException`, and every run
-failure carries the partial report in `Result`.
+failure carries the partial report in `Result`. The one exception is
+cancellation: `RunCanceledException` derives from
+`OperationCanceledException` — so idiomatic cancellation handling keeps
+working — and exposes the same `Result` property.
 
 ```csharp
 try
@@ -443,7 +471,7 @@ catch (CodexcwException ex)
 
 ```csharp
 // Cancel a streaming session explicitly:
-var session = runner.Start(new Request { Prompt = "..." });
+using var session = runner.Start(new Request { Prompt = "..." });
 _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => session.Cancel());
 await foreach (var _ in session.Events())
 {

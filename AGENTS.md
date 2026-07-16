@@ -46,7 +46,7 @@ are **language-namespaced**:
 | `rust-*` | `rust-build`, `rust-test`, `rust-fmt-check`, `rust-lint`, `rust-audit`, `rust-ci` |
 | `node-*` | `node-build`, `node-test`, `node-ci` |
 | `py-*` | `py-build`, `py-test`, `py-ci` |
-| `dotnet-*` | `dotnet-build`, `dotnet-test`, `dotnet-fmt-check`, `dotnet-pack`, `dotnet-ci` |
+| `dotnet-*` | `dotnet-build`, `dotnet-test`, `dotnet-fmt-check`, `dotnet-pack`, `dotnet-verify-pack`, `dotnet-ci` |
 | shared | `lint-md`, `lint-links`, `lint-secrets`, `quality`, `tools`, `clean` |
 
 `just ci` runs every language lane plus `quality` and ends with
@@ -98,6 +98,8 @@ Five independent trains, each on its own tag prefix:
 - `node-v<semver>` → `release-npm.yml` (npm, per-platform native addons).
 - `py-v<semver>` → `release-pypi.yml` (PyPI wheels + sdist).
 - `dotnet-v<semver>` → `release-nuget.yml` (nuget.org, Trusted Publishing/OIDC).
+  The workflow fails unless the tag's semver matches `<Version>` in
+  `dotnet/Directory.Build.props`.
 
 GitHub skips workflow triggers entirely when a single push contains more than
 three tags — push release tags individually (or in batches of at most three).
