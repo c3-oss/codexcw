@@ -1,7 +1,9 @@
 # Architecture
 
-`codexcw` is one Rust core wrapped by two thin FFI bindings and shipped to
-three registries.
+`codexcw` is one Rust core wrapped by two thin FFI bindings, plus two fully
+native ports — Go at the repo root and .NET in `dotnet/` — shipped to five
+registries. The native ports reimplement the core's behavior idiomatically
+(no FFI) and stay in lockstep through the shared spec and test fixtures.
 
 ## Core (`crates/codexcw`)
 
@@ -54,5 +56,6 @@ language wrapper raises.
 ## Testing
 
 A single fake `codex` shell script emits a fixed JSONL stream and records its
-argv/stdin. The same fixture drives the Rust integration tests and the Node and
-Python smoke tests, so all three decode identically without a real Codex install.
+argv/stdin. The same fixture drives the Rust integration tests and the Node,
+Python, and C# smoke tests, so every implementation decodes identically without
+a real Codex install.

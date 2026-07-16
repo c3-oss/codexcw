@@ -1,6 +1,6 @@
 ---
 name: codexcw
-description: Run Codex or Claude Code non-interactively from Go, Rust, Node.js, or Python using the codexcw library (a wrapper around `codex exec --json` and `claude -p --output-format stream-json`). Use when building automation that spawns either agent, streams its JSONL events, resumes threads, or controls sandbox/approval/permission policy.
+description: Run Codex or Claude Code non-interactively from Go, Rust, Node.js, Python, or C# using the codexcw library (a wrapper around `codex exec --json` and `claude -p --output-format stream-json`). Use when building automation that spawns either agent, streams its JSONL events, resumes threads, or controls sandbox/approval/permission policy.
 ---
 
 # codexcw
@@ -11,7 +11,7 @@ callbacks, results, and typed errors. The `codex` agent (the default) wraps
 `codex exec --json`; the `claude` agent wraps
 `claude -p --output-format stream-json`, normalizing Claude Code's events into
 the same event model.
-It ships as four independent, idiomatic implementations of the same contract —
+It ships as five independent, idiomatic implementations of the same contract —
 pick the one matching your host language.
 
 | Language | Package | Import |
@@ -20,6 +20,7 @@ pick the one matching your host language.
 | Rust | `codexcw` (crates.io) | `use codexcw::{Runner, Request};` |
 | TypeScript | `@c3-oss/codexcw` (npm) | `import { Runner } from '@c3-oss/codexcw'` |
 | Python | `codexcw` (PyPI) | `from codexcw import Runner, Request` (+ `codexcw.aio`) |
+| C# | `C3OSS.Codexcw` (NuGet) | `using C3OSS.Codexcw;` |
 
 ## Shape of the API (same across languages)
 
@@ -68,5 +69,6 @@ repo:
 - Rust — `docs/examples/rust.md`
 - TypeScript — `docs/examples/typescript.md`
 - Python — `docs/examples/python.md`
+- C# — `docs/examples/csharp.md`
 
 See also `AGENTS.md` (project guide) and `docs/architecture.md`.

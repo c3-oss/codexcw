@@ -7,7 +7,7 @@ Run Codex or Claude Code non-interactively: spawn the selected agent, decode its
 JSONL event stream, and expose each run as streams, callbacks, results, and
 typed errors.
 
-`codexcw` ships as **four independent, idiomatic implementations** of the same
+`codexcw` ships as **five independent, idiomatic implementations** of the same
 contract — there is no FFI between them; each is native to its ecosystem:
 
 | Language   | Package                        | Install |
@@ -16,9 +16,11 @@ contract — there is no FFI between them; each is native to its ecosystem:
 | Rust       | `codexcw` (crates.io)          | `cargo add codexcw` |
 | TypeScript | `@c3-oss/codexcw` (npm)         | `npm install @c3-oss/codexcw` |
 | Python     | `codexcw` (PyPI)               | `pip install codexcw` |
+| C# / .NET  | `C3OSS.Codexcw` (NuGet)        | `dotnet add package C3OSS.Codexcw` |
 
-The Go library lives at the repo root; the Rust core is in `crates/codexcw`, and
-the npm + PyPI bindings (backed by that Rust core) are in `bindings/`.
+The Go library lives at the repo root; the Rust core is in `crates/codexcw`;
+the npm + PyPI bindings (backed by that Rust core) are in `bindings/`; and the
+.NET port is in `dotnet/`.
 
 Two agents share the same event model:
 
@@ -119,11 +121,34 @@ print(result.final_message)
 An async API mirrors the sync one under `codexcw.aio`. More examples (sync +
 async): [`docs/examples/python.md`](docs/examples/python.md).
 
+## C# / .NET
+
+```csharp
+using C3OSS.Codexcw;
+
+var runner = new Runner();
+var result = await runner.RunAsync(new Request { Prompt = "diga oi" });
+Console.WriteLine(result.FinalMessage);
+
+// Streaming
+var session = runner.Start(new Request { Prompt = "resuma este repo" });
+await foreach (var evt in session.Events())
+{
+    if (evt.ItemCompleted?.Item is { Kind: ItemKind.AgentMessage } item)
+    {
+        Console.WriteLine(item.Text);
+    }
+}
+await session.WaitAsync();
+```
+
+More examples: [`docs/examples/csharp.md`](docs/examples/csharp.md).
+
 ## Development
 
 ```bash
-devbox shell       # enter the pinned toolchain (Go + Rust + Node + Python), wire hooks
-just ci            # local mirror of the PR pipeline (all four languages)
+devbox shell       # enter the pinned toolchain (Go + Rust + Node + Python + .NET), wire hooks
+just ci            # local mirror of the PR pipeline (all five languages)
 ```
 
 Recipes are language-namespaced:
@@ -134,6 +159,7 @@ Recipes are language-namespaced:
 | `just rust-build` / `rust-test` / `rust-lint` | Rust core |
 | `just node-build` / `node-test` | npm package |
 | `just py-build` / `py-test` | PyPI package |
+| `just dotnet-build` / `dotnet-test` | NuGet package |
 | `just quality` | markdown lint, link check, secret scan |
 | `just ci` | the full local lane |
 
