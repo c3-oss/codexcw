@@ -97,6 +97,69 @@
         }
       }
     },
+    "dotnet-sdk_10@10.0": {
+      "last_modified": "2026-06-27T07:37:20Z",
+      "resolved": "github:NixOS/nixpkgs/3d46470bb3030020f7e1361f33514854f5bfa86d#dotnet-sdk_10",
+      "source": "devbox-search",
+      "version": "10.0.301",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/hpzffy1rjgg4kl33yg0c8irygyd50rq1-dotnet-sdk-wrapped-10.0.301",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/n026fy5znywksb0ipqhy7j2vndzdnnh5-dotnet-sdk-wrapped-10.0.301-man",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/hpzffy1rjgg4kl33yg0c8irygyd50rq1-dotnet-sdk-wrapped-10.0.301"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/4670wa1b53fqm2m72n73nv1cbi8gh4hk-dotnet-sdk-wrapped-10.0.301",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/bqbf3baa72bslgwld8nzh0f34sd1vn8s-dotnet-sdk-wrapped-10.0.301-man",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/4670wa1b53fqm2m72n73nv1cbi8gh4hk-dotnet-sdk-wrapped-10.0.301"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/wqmmma3pxwbfj9mndcb0ds79xcpfrbjf-dotnet-sdk-wrapped-10.0.301",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/wqmmma3pxwbfj9mndcb0ds79xcpfrbjf-dotnet-sdk-wrapped-10.0.301"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/cdldmk30ppwi3k4vv1prawwnf9whn1h1-dotnet-sdk-wrapped-10.0.301",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/jc1znsh5gqmrpafk1l4gl6v3kw2wj1mm-dotnet-sdk-wrapped-10.0.301-man",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/cdldmk30ppwi3k4vv1prawwnf9whn1h1-dotnet-sdk-wrapped-10.0.301"
+        }
+      }
+    },
     "github:NixOS/nixpkgs/nixpkgs-unstable": {
       "last_modified": "2026-06-23T00:43:55Z",
       "resolved": "github:NixOS/nixpkgs/89570f24e97e614aa34aa9ab1c927b6578a43775?lastModified=1782175435&narHash=sha256-EMzXKmnOtBQ2MnvpiNOm7E%2BkOMvdPrIKaeg52Tip2Uk%3D"

@@ -21,10 +21,13 @@
     "uv": "0.9",
     "maturin": "1",
     "cargo-deny": "latest",
-    "cargo-audit": "latest"
+    "cargo-audit": "latest",
+    "dotnet-sdk_10": "10.0"
   },
   "env": {
-    "DEVBOX_COREPACK_ENABLED": "true"
+    "DEVBOX_COREPACK_ENABLED": "true",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "DOTNET_NOLOGO": "1"
   },
   "shell": {
     "init_hook": [

@@ -127,6 +127,26 @@ py-test:
 py-ci: py-build py-test
 
 # --------------------------------------------------------------------------------------------------
+# .NET port (C3OSS.Codexcw)
+
+dotnet-build:
+    dotnet build dotnet/Codexcw.slnx
+
+dotnet-test:
+    dotnet test dotnet/Codexcw.slnx --no-build
+
+dotnet-fmt:
+    dotnet format dotnet/Codexcw.slnx
+
+dotnet-fmt-check:
+    dotnet format dotnet/Codexcw.slnx --verify-no-changes
+
+dotnet-pack:
+    dotnet pack dotnet/Codexcw/Codexcw.csproj -c Release -o dist/nuget
+
+dotnet-ci: dotnet-build dotnet-fmt-check dotnet-test
+
+# --------------------------------------------------------------------------------------------------
 # Cross-cutting quality gates
 
 # lint tracked Markdown files
@@ -153,7 +173,7 @@ tools: go-tools rust-tools
 # --------------------------------------------------------------------------------------------------
 
 # full local CI lane (mirrors .github/workflows/ci.yml)
-ci: go-ci rust-ci node-ci py-ci quality
+ci: go-ci rust-ci node-ci py-ci dotnet-ci quality
     git diff --exit-code
 
 # remove build outputs across all languages
@@ -162,3 +182,4 @@ clean:
     cargo clean
     rm -rf bindings/node/node_modules bindings/node/*.node
     rm -rf bindings/python/.venv bindings/python/python/codexcw/_codexcw*.so
+    rm -rf dotnet/Codexcw/bin dotnet/Codexcw/obj dotnet/Codexcw.Tests/bin dotnet/Codexcw.Tests/obj
