@@ -71,11 +71,21 @@ type Request struct {
 	// Profile selects a Codex config profile.
 	Profile string
 
-	// Sandbox controls the Codex sandbox policy.
+	// Sandbox controls the Codex sandbox policy (codex agent only).
 	Sandbox SandboxMode
 
-	// Approval controls the Codex approval policy through -c.
+	// Approval controls the Codex approval policy through -c (codex agent only).
 	Approval ApprovalPolicy
+
+	// PermissionMode controls the Claude permission mode (claude agent only).
+	PermissionMode PermissionMode
+
+	// AllowedTools lists tool patterns Claude may use without prompting
+	// (claude agent only).
+	AllowedTools []string
+
+	// DisallowedTools lists tool patterns denied to Claude (claude agent only).
+	DisallowedTools []string
 
 	// Config contains raw Codex -c config overrides.
 	Config []ConfigOverride

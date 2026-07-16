@@ -56,6 +56,9 @@ const (
 	// ItemPlanUpdate carries a Codex plan update.
 	ItemPlanUpdate ItemType = "plan_update"
 
+	// ItemToolCall carries a generic tool call from the claude agent.
+	ItemToolCall ItemType = "tool_call"
+
 	// ItemError carries an item-scoped Codex error.
 	ItemError ItemType = "error"
 )

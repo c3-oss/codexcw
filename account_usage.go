@@ -177,7 +177,7 @@ type AccountTokenUsageDailyBucket struct {
 func GetAccountUsage(ctx context.Context, req AccountUsageRequest) (*AccountUsage, error) {
 	executable := strings.TrimSpace(req.Executable)
 	if executable == "" {
-		executable = defaultExecutable
+		executable = string(AgentCodex)
 	}
 	requestTimeout := req.Timeout
 	if requestTimeout <= 0 {
