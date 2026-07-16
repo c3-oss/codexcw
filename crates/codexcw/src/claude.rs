@@ -10,7 +10,7 @@ use serde_json::value::RawValue;
 use crate::args::{nonempty, prompt_bytes, Prepared};
 use crate::error::Error;
 use crate::event::{
-    ErrorPayload, Event, EventKind, EventPayload, FileChange, Item, ItemKind, Usage,
+    ErrorPayload, Event, EventKind, EventPayload, FileChange, Item, ItemKind, ModelUsage, Usage,
 };
 use crate::request::Request;
 
@@ -137,6 +137,7 @@ pub(crate) fn validate_claude_request(req: &Request) -> Result<(), Error> {
 #[derive(Default)]
 pub(crate) struct ClaudeDecoder {
     pending: HashMap<String, Item>,
+    block_indexes: HashMap<String, usize>,
     last_agent_text: String,
 }
 
@@ -156,6 +157,10 @@ struct WireEvent {
     result: Option<String>,
     #[serde(default)]
     usage: WireUsage,
+    #[serde(default)]
+    total_cost_usd: f64,
+    #[serde(default, rename = "modelUsage")]
+    model_usage: HashMap<String, ModelUsage>,
     #[serde(default)]
     tool_use_result: Option<Box<RawValue>>,
 }
@@ -194,6 +199,8 @@ struct WireBlock {
 struct WireUsage {
     #[serde(default)]
     input_tokens: i64,
+    #[serde(default)]
+    cache_creation_input_tokens: i64,
     #[serde(default)]
     cache_read_input_tokens: i64,
     #[serde(default)]
@@ -259,7 +266,7 @@ impl ClaudeDecoder {
     fn decode_assistant(&mut self, base: Event, wire: &WireEvent) -> Result<Vec<Event>, String> {
         let mut events = Vec::new();
         let message_id = wire.message.as_ref().map(|m| m.id.as_str()).unwrap_or("");
-        for (index, raw_block) in content_blocks(wire.message.as_ref()).iter().enumerate() {
+        for raw_block in content_blocks(wire.message.as_ref()) {
             let block: WireBlock =
                 serde_json::from_str(raw_block.get()).map_err(|err| err.to_string())?;
             match block.kind.as_str() {
@@ -268,7 +275,7 @@ impl ClaudeDecoder {
                     events.push(item_completed(
                         &base,
                         Item {
-                            id: block_id(message_id, index),
+                            id: self.next_block_id(message_id),
                             kind: ItemKind::AgentMessage,
                             status: "completed".to_string(),
                             raw: raw_block.get().to_string(),
@@ -281,7 +288,7 @@ impl ClaudeDecoder {
                     events.push(item_completed(
                         &base,
                         Item {
-                            id: block_id(message_id, index),
+                            id: self.next_block_id(message_id),
                             kind: ItemKind::Reasoning,
                             status: "completed".to_string(),
                             raw: raw_block.get().to_string(),
@@ -325,6 +332,10 @@ impl ClaudeDecoder {
             } else {
                 "completed".to_string()
             };
+            if item.kind == ItemKind::CommandExecution {
+                item.exit_code = command_exit_code(wire.tool_use_result.as_deref(), &block)
+                    .or((!block.is_error).then_some(0));
+            }
             if item.kind == ItemKind::FileChange && !item.changes.is_empty() {
                 if let Some(kind) = file_change_kind(wire.tool_use_result.as_deref()) {
                     item.changes[0].kind = kind;
@@ -340,6 +351,7 @@ impl ClaudeDecoder {
 
     fn decode_result(&mut self, base: Event, wire: &WireEvent) -> Vec<Event> {
         let result_text = wire.result.clone().unwrap_or_default();
+        let usage = result_usage(wire);
         if wire.is_error {
             let message = if result_text.is_empty() {
                 "claude run failed".to_string()
@@ -353,6 +365,7 @@ impl ClaudeDecoder {
                     message,
                     raw: base.raw,
                 },
+                usage,
             };
             return vec![failed];
         }
@@ -373,16 +386,35 @@ impl ClaudeDecoder {
         }
         let mut completed = base;
         completed.kind = EventKind::TurnCompleted;
-        completed.payload = EventPayload::TurnCompleted {
-            usage: Usage {
-                input_tokens: wire.usage.input_tokens,
-                cached_input_tokens: wire.usage.cache_read_input_tokens,
-                output_tokens: wire.usage.output_tokens,
-                ..Default::default()
-            },
-        };
+        completed.payload = EventPayload::TurnCompleted { usage };
         events.push(completed);
         events
+    }
+
+    fn next_block_id(&mut self, message_id: &str) -> String {
+        let index = self
+            .block_indexes
+            .entry(message_id.to_string())
+            .or_default();
+        let id = block_id(message_id, *index);
+        *index += 1;
+        id
+    }
+}
+
+fn result_usage(wire: &WireEvent) -> Usage {
+    Usage {
+        input_tokens: wire.usage.input_tokens,
+        cache_creation_input_tokens: wire.usage.cache_creation_input_tokens,
+        cached_input_tokens: wire.usage.cache_read_input_tokens,
+        output_tokens: wire.usage.output_tokens,
+        total_tokens: wire.usage.input_tokens
+            + wire.usage.cache_creation_input_tokens
+            + wire.usage.cache_read_input_tokens
+            + wire.usage.output_tokens,
+        total_cost_usd: wire.total_cost_usd,
+        model_usage: wire.model_usage.clone(),
+        reasoning_output_tokens: 0,
     }
 }
 
@@ -476,6 +508,36 @@ fn file_change_kind(raw: Option<&RawValue>) -> Option<String> {
         "update" => Some("update".to_string()),
         _ => None,
     }
+}
+
+fn command_exit_code(raw: Option<&RawValue>, block: &WireBlock) -> Option<i32> {
+    #[derive(Deserialize)]
+    struct ToolUseResult {
+        #[serde(default, alias = "exitCode")]
+        exit_code: Option<i32>,
+    }
+
+    if let Some(raw) = raw {
+        if let Ok(result) = serde_json::from_str::<ToolUseResult>(raw.get()) {
+            if result.exit_code.is_some() {
+                return result.exit_code;
+            }
+        }
+        if let Ok(text) = serde_json::from_str::<String>(raw.get()) {
+            if let Some(code) = exit_code_from_text(&text) {
+                return Some(code);
+            }
+        }
+    }
+    exit_code_from_text(&tool_result_text(block.content.as_deref()))
+}
+
+fn exit_code_from_text(text: &str) -> Option<i32> {
+    let suffix = text.rsplit_once("Exit code ")?.1;
+    let code = suffix
+        .split(|ch: char| !ch.is_ascii_digit() && ch != '-')
+        .next()?;
+    code.parse().ok()
 }
 
 fn block_id(message_id: &str, index: usize) -> String {
@@ -636,6 +698,32 @@ mod tests {
         assert_eq!(item.id, "t1");
         assert_eq!(item.aggregated_output, "total 0");
         assert_eq!(item.status, "completed");
+        assert_eq!(item.exit_code, Some(0));
+    }
+
+    #[test]
+    fn bash_failure_extracts_exit_code() {
+        let mut decoder = ClaudeDecoder::default();
+        decoder
+            .decode(
+                br#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"sh -c 'exit 7'"}}]}}"#,
+                "run-x",
+                "",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+        let completed = decoder
+            .decode(
+                br#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Exit code 7","is_error":true}]},"tool_use_result":"Error: Exit code 7"}"#,
+                "run-x",
+                "",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+
+        let item = completed[0].item_completed().unwrap();
+        assert_eq!(item.status, "failed");
+        assert_eq!(item.exit_code, Some(7));
     }
 
     #[test]
@@ -660,7 +748,7 @@ mod tests {
         let mut decoder = ClaudeDecoder::default();
         let events = decoder
             .decode(
-                br#"{"type":"result","subtype":"success","is_error":true,"result":"model gone","session_id":"s"}"#,
+                br#"{"type":"result","subtype":"success","is_error":true,"result":"model gone","session_id":"s","total_cost_usd":0.02,"usage":{"input_tokens":3,"cache_creation_input_tokens":5,"cache_read_input_tokens":7,"output_tokens":11}}"#,
                 "run-x",
                 "s",
                 SystemTime::UNIX_EPOCH,
@@ -668,7 +756,11 @@ mod tests {
             .unwrap();
         assert_eq!(events.len(), 1);
         match &events[0].payload {
-            EventPayload::TurnFailed { error } => assert_eq!(error.message, "model gone"),
+            EventPayload::TurnFailed { error, usage } => {
+                assert_eq!(error.message, "model gone");
+                assert_eq!(usage.total_tokens, 26);
+                assert_eq!(usage.total_cost_usd, 0.02);
+            }
             other => panic!("unexpected payload: {other:?}"),
         }
     }
@@ -678,7 +770,7 @@ mod tests {
         let mut decoder = ClaudeDecoder::default();
         let events = decoder
             .decode(
-                br#"{"type":"result","subtype":"success","is_error":false,"result":"{\"a\":1}","session_id":"s","usage":{"input_tokens":9,"cache_read_input_tokens":40,"output_tokens":7}}"#,
+                br#"{"type":"result","subtype":"success","is_error":false,"result":"{\"a\":1}","session_id":"s","total_cost_usd":0.25,"usage":{"input_tokens":9,"cache_creation_input_tokens":11,"cache_read_input_tokens":40,"output_tokens":7},"modelUsage":{"claude-sonnet":{"inputTokens":9,"outputTokens":7,"cacheReadInputTokens":40,"cacheCreationInputTokens":11,"webSearchRequests":2,"costUSD":0.25,"contextWindow":200000,"maxOutputTokens":64000}}}"#,
                 "run-x",
                 "s",
                 SystemTime::UNIX_EPOCH,
@@ -691,11 +783,47 @@ mod tests {
         match &events[1].payload {
             EventPayload::TurnCompleted { usage } => {
                 assert_eq!(usage.input_tokens, 9);
+                assert_eq!(usage.cache_creation_input_tokens, 11);
                 assert_eq!(usage.cached_input_tokens, 40);
                 assert_eq!(usage.output_tokens, 7);
+                assert_eq!(usage.total_tokens, 67);
+                assert_eq!(usage.total_cost_usd, 0.25);
+                let model = &usage.model_usage["claude-sonnet"];
+                assert_eq!(model.input_tokens, 9);
+                assert_eq!(model.output_tokens, 7);
+                assert_eq!(model.cache_read_input_tokens, 40);
+                assert_eq!(model.cache_creation_input_tokens, 11);
+                assert_eq!(model.web_search_requests, 2);
+                assert_eq!(model.cost_usd, 0.25);
+                assert_eq!(model.context_window, 200_000);
+                assert_eq!(model.max_output_tokens, 64_000);
             }
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    #[test]
+    fn assistant_block_ids_are_unique_across_streamed_chunks() {
+        let mut decoder = ClaudeDecoder::default();
+        let thinking = decoder
+            .decode(
+                br#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"thinking","thinking":"hmm"}]}}"#,
+                "run-x",
+                "",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+        let text = decoder
+            .decode(
+                br#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"Done."}]}}"#,
+                "run-x",
+                "",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+
+        assert_eq!(thinking[0].item_completed().unwrap().id, "msg_1_0");
+        assert_eq!(text[0].item_completed().unwrap().id, "msg_1_1");
     }
 
     #[test]

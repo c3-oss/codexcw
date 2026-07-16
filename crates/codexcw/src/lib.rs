@@ -56,6 +56,7 @@ pub(crate) const DEFAULT_EXECUTABLE: &str = "codex";
 mod account_usage;
 mod args;
 mod claude;
+mod claude_account_usage;
 mod decoder;
 mod error;
 mod event;
@@ -70,10 +71,14 @@ pub use account_usage::{
     AccountSpendLimit, AccountTokenUsage, AccountTokenUsageDailyBucket, AccountTokenUsageSummary,
     AccountUsage, AccountUsageAccount, AccountUsageRequest,
 };
+pub use claude_account_usage::{
+    get_claude_account_usage, ClaudeAccountUsage, ClaudeAccountUsageRequest,
+    ClaudeAccountUsageWindow,
+};
 pub use error::{Error, GroupError};
 pub use event::{
     CodexErrorEvent, ErrorPayload, Event, EventKind, EventPayload, FileChange, Item, ItemKind,
-    Usage,
+    ModelUsage, Usage,
 };
 pub use group::{Group, GroupResult, ManyOptions, RunEvent};
 pub use request::{

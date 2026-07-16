@@ -1,4 +1,4 @@
-//! The [`Runner`] that spawns `codex exec` processes and decodes their output.
+//! The [`Runner`] that spawns agent processes and decodes their output.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -124,7 +124,7 @@ struct RunnerInner {
     default_approval: ApprovalPolicy,
 }
 
-/// Starts `codex exec` processes with safe automation defaults.
+/// Starts agent processes with safe automation defaults.
 #[derive(Clone)]
 pub struct Runner {
     inner: Arc<RunnerInner>,
@@ -166,7 +166,7 @@ impl Runner {
         self.inner.event_buffer
     }
 
-    /// Launches one `codex exec` process and returns immediately.
+    /// Launches one agent process and returns immediately.
     pub async fn start(&self, req: Request) -> Result<Session, Error> {
         self.start_opts(req, RunOptions::default()).await
     }
@@ -232,6 +232,7 @@ impl Runner {
             scan_max_bytes: self.inner.scan_max_bytes,
             schema_temp: prepared.schema_temp,
             decoder: EventDecoder::for_agent(self.inner.agent),
+            agent: self.inner.agent,
         }));
 
         Ok(Session {
@@ -372,6 +373,7 @@ struct CollectCtx {
     scan_max_bytes: usize,
     schema_temp: Option<tempfile::NamedTempFile>,
     decoder: EventDecoder,
+    agent: Agent,
 }
 
 pub(crate) async fn drain_stderr(mut stderr: ChildStderr, tail: Arc<TailBuffer>) {
@@ -399,6 +401,7 @@ async fn collect(ctx: CollectCtx) {
         scan_max_bytes,
         schema_temp,
         mut decoder,
+        agent,
     } = ctx;
 
     let started_at = SystemTime::now();
@@ -479,6 +482,12 @@ async fn collect(ctx: CollectCtx) {
             if let EventPayload::TurnCompleted { usage: turn_usage } = &event.payload {
                 usage = turn_usage.clone();
             }
+            if let EventPayload::TurnFailed {
+                usage: turn_usage, ..
+            } = &event.payload
+            {
+                usage = turn_usage.clone();
+            }
 
             last_event = Some(event.clone());
             events.push(event.clone());
@@ -527,7 +536,7 @@ async fn collect(ctx: CollectCtx) {
     };
 
     if run_err.is_none() {
-        run_err = classify_codex_event(last_event.as_ref());
+        run_err = classify_agent_event(agent, last_event.as_ref());
     }
     if run_err.is_none() {
         run_err = classify_process_error(&wait_result, &report.stderr, last_event.as_ref());
@@ -556,12 +565,13 @@ fn classify_process_error(
     }
 }
 
-fn classify_codex_event(last_event: Option<&Event>) -> Option<Error> {
+fn classify_agent_event(agent: Agent, last_event: Option<&Event>) -> Option<Error> {
     let event = last_event?;
     match &event.payload {
-        EventPayload::Error(_) | EventPayload::TurnFailed { .. } => {
-            Some(Error::codex_from_event(event))
-        }
+        EventPayload::Error(_) | EventPayload::TurnFailed { .. } => Some(match agent {
+            Agent::Codex => Error::codex_from_event(event),
+            Agent::Claude => Error::claude_from_event(event),
+        }),
         _ => None,
     }
 }

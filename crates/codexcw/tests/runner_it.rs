@@ -300,7 +300,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 
     let error = group.wait().await.expect_err("group fails");
     assert_eq!(error.results.len(), 2);
-    assert!(error.to_string().contains("1 codex run(s) failed"));
+    assert!(error.to_string().contains("1 agent run(s) failed"));
     let failed = error
         .results
         .iter()
@@ -390,12 +390,12 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"D
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn claude_error_result_returns_codex_error() {
+async fn claude_error_result_returns_claude_error() {
     let fake = write_fake_codex(
         r#"record_args "$@"
 cat >/dev/null
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-err"}'
-printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"result":"issue with the selected model","session_id":"sess-err"}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"result":"issue with the selected model","session_id":"sess-err","total_cost_usd":0.02,"usage":{"input_tokens":3,"cache_creation_input_tokens":5,"cache_read_input_tokens":7,"output_tokens":11}}'
 exit 1
 "#,
     );
@@ -408,9 +408,16 @@ exit 1
     let error = runner.run(Request::new("hi")).await.expect_err("run fails");
 
     match error {
-        Error::Codex { message, event } => {
+        Error::Claude { message, event } => {
+            assert!(message.starts_with("claude turn failed:"));
             assert!(message.contains("issue with the selected model"));
-            assert!(matches!(event.payload, EventPayload::TurnFailed { .. }));
+            match event.payload {
+                EventPayload::TurnFailed { usage, .. } => {
+                    assert_eq!(usage.total_tokens, 26);
+                    assert_eq!(usage.total_cost_usd, 0.02);
+                }
+                other => panic!("unexpected payload: {other:?}"),
+            }
         }
         other => panic!("unexpected error: {other:?}"),
     }

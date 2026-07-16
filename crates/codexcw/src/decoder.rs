@@ -86,6 +86,7 @@ pub(crate) fn decode_event(
         EventKind::TurnCompleted => EventPayload::TurnCompleted { usage: wire.usage },
         EventKind::TurnFailed => EventPayload::TurnFailed {
             error: decode_event_error(wire.error.as_deref()),
+            usage: wire.usage,
         },
         EventKind::ItemStarted => EventPayload::ItemStarted(decode_item(wire.item.as_deref())?),
         EventKind::ItemCompleted => EventPayload::ItemCompleted(decode_item(wire.item.as_deref())?),
@@ -224,7 +225,7 @@ mod tests {
         )
         .unwrap();
         match event.payload {
-            EventPayload::TurnFailed { error } => assert_eq!(error.message, "turn broke"),
+            EventPayload::TurnFailed { error, .. } => assert_eq!(error.message, "turn broke"),
             other => panic!("unexpected payload: {other:?}"),
         }
     }

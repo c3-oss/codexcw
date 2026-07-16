@@ -70,8 +70,12 @@ pub mod claude_model {
 pub mod permission_mode {
     /// Auto-approve file edits inside the workspace.
     pub const ACCEPT_EDITS: &str = "acceptEdits";
+    /// Let Claude choose when to request permission.
+    pub const AUTO: &str = "auto";
     /// Skip all permission checks.
     pub const BYPASS_PERMISSIONS: &str = "bypassPermissions";
+    /// Request permission for each protected action.
+    pub const MANUAL: &str = "manual";
     /// Keep Claude in read-only planning mode.
     pub const PLAN: &str = "plan";
     /// Deny any action that would prompt for approval.
@@ -113,13 +117,13 @@ impl ConfigOverride {
 /// `..Default::default()`.
 #[derive(Clone, Debug, Default)]
 pub struct Request {
-    /// User instruction sent to Codex.
+    /// User instruction sent to the agent.
     pub prompt: String,
     /// Additional prompt input, or extra context when `prompt` is set.
     pub stdin: Option<Vec<u8>>,
     /// Working directory passed as `--cd`.
     pub dir: Option<String>,
-    /// Additional directories Codex may access.
+    /// Additional directories the agent may access.
     pub add_dirs: Vec<String>,
     /// Images attached to the initial prompt.
     pub images: Vec<String>,
@@ -145,7 +149,7 @@ pub struct Request {
     pub disable: Vec<String>,
     /// Reject unrecognized config fields.
     pub strict_config: bool,
-    /// Keep Codex rollout files on disk.
+    /// Keep the agent session on disk.
     pub persistent: bool,
     /// Skip `CODEX_HOME/config.toml`.
     pub ignore_user_config: bool,
@@ -159,15 +163,15 @@ pub struct Request {
     pub output_schema: Option<Vec<u8>>,
     /// Ask Codex to write the final message to this file.
     pub output_last_message_path: Option<String>,
-    /// Pass Codex's full sandbox bypass flag.
+    /// Pass the selected agent's full permission bypass flag.
     pub dangerously_bypass_sandbox: bool,
     /// Run enabled hooks without persisted trust.
     pub dangerously_bypass_hooks: bool,
-    /// Environment variables for the Codex child process.
+    /// Environment variables for the agent child process.
     pub env: Vec<(String, String)>,
-    /// Resume a specific Codex thread id.
+    /// Resume a specific agent thread or session id.
     pub resume_id: Option<String>,
-    /// Resume the most recent Codex thread.
+    /// Resume the most recent agent thread or session.
     pub resume_last: bool,
     /// Disable Codex's cwd filtering while resuming.
     pub resume_all: bool,

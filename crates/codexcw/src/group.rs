@@ -1,4 +1,4 @@
-//! Batch execution of many `codex exec` processes with bounded concurrency.
+//! Batch execution of agent processes with bounded concurrency.
 
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ pub struct RunEvent {
     pub run_id: String,
     /// Request index in the `run_many` input slice.
     pub index: usize,
-    /// The decoded Codex event.
+    /// The decoded agent event.
     pub event: Event,
 }
 
@@ -59,7 +59,7 @@ impl Default for ManyOptions {
     }
 }
 
-/// A batch of running `codex exec` processes.
+/// A batch of running agent processes.
 pub struct Group {
     rx: Option<mpsc::Receiver<RunEvent>>,
     cancel: CancellationToken,
@@ -102,7 +102,7 @@ impl Group {
 }
 
 impl Runner {
-    /// Starts `n` `codex exec` processes with bounded concurrency.
+    /// Starts `n` agent processes with bounded concurrency.
     pub async fn run_many(&self, reqs: Vec<Request>, opts: ManyOptions) -> Group {
         let event_buffer = opts.event_buffer.unwrap_or(self.event_buffer()).max(1);
         let max_concurrent = opts.max_concurrent.max(1);
