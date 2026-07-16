@@ -341,6 +341,11 @@ impl ClaudeDecoder {
                     item.changes[0].kind = kind;
                 }
             }
+            if item.kind == ItemKind::CollabToolCall {
+                if let Some(agent_id) = collab_agent_id(wire.tool_use_result.as_deref()) {
+                    item.receiver_thread_ids = vec![agent_id];
+                }
+            }
             events.push(item_completed(&base, item));
         }
         if events.is_empty() {
@@ -403,19 +408,46 @@ impl ClaudeDecoder {
 }
 
 fn result_usage(wire: &WireEvent) -> Usage {
+    // result.usage covers the root agent only; modelUsage and the cost also
+    // cover subagents. The full-run total comes from modelUsage when Claude
+    // reports it.
+    let mut total_tokens = wire.usage.input_tokens
+        + wire.usage.cache_creation_input_tokens
+        + wire.usage.cache_read_input_tokens
+        + wire.usage.output_tokens;
+    if !wire.model_usage.is_empty() {
+        total_tokens = wire
+            .model_usage
+            .values()
+            .map(|usage| {
+                usage.input_tokens
+                    + usage.cache_creation_input_tokens
+                    + usage.cache_read_input_tokens
+                    + usage.output_tokens
+            })
+            .sum();
+    }
+
     Usage {
         input_tokens: wire.usage.input_tokens,
         cache_creation_input_tokens: wire.usage.cache_creation_input_tokens,
         cached_input_tokens: wire.usage.cache_read_input_tokens,
         output_tokens: wire.usage.output_tokens,
-        total_tokens: wire.usage.input_tokens
-            + wire.usage.cache_creation_input_tokens
-            + wire.usage.cache_read_input_tokens
-            + wire.usage.output_tokens,
+        total_tokens,
         total_cost_usd: wire.total_cost_usd,
         model_usage: wire.model_usage.clone(),
         reasoning_output_tokens: 0,
     }
+}
+
+fn collab_agent_id(tool_use_result: Option<&RawValue>) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Wire {
+        #[serde(rename = "agentId", default)]
+        agent_id: String,
+    }
+    let wire: Wire = serde_json::from_str(tool_use_result?.get()).ok()?;
+    (!wire.agent_id.is_empty()).then_some(wire.agent_id)
 }
 
 fn tool_item(block: &WireBlock, raw_block: &str) -> Item {
@@ -455,7 +487,12 @@ fn tool_item(block: &WireBlock, raw_block: &str) -> Item {
             }];
         }
         "WebSearch" => item.kind = ItemKind::WebSearch,
-        "Task" => item.kind = ItemKind::CollabToolCall,
+        // "Task" is the legacy name of the subagent tool; current Claude
+        // Code CLIs call it "Agent".
+        "Task" | "Agent" => {
+            item.kind = ItemKind::CollabToolCall;
+            item.tool = block.name.clone();
+        }
         "TodoWrite" => item.kind = ItemKind::PlanUpdate,
         name if name.starts_with("mcp__") => item.kind = ItemKind::McpToolCall,
         _ => item.kind = ItemKind::ToolCall,
@@ -716,9 +753,63 @@ mod tests {
             .unwrap();
         let task = started[0].item_started().unwrap();
         assert_eq!(task.kind, ItemKind::CollabToolCall);
+        assert_eq!(task.tool, "Task");
         assert!(task.raw.contains("subagent_type"));
         let todo = started[1].item_started().unwrap();
         assert_eq!(todo.kind, ItemKind::PlanUpdate);
+    }
+
+    #[test]
+    fn agent_tool_maps_to_collab_with_receiver_id() {
+        // Current Claude Code CLIs call the subagent tool "Agent"; "Task" is
+        // the legacy name. This mirrors a real 2.1.x payload.
+        let mut decoder = ClaudeDecoder::default();
+        let started = decoder
+            .decode(
+                br#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"Explore","prompt":"reply SUBAGENT_CHILD_OK"}}]},"session_id":"s"}"#,
+                "run-x",
+                "s",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+        let item = started[0].item_started().unwrap();
+        assert_eq!(item.kind, ItemKind::CollabToolCall);
+        assert_eq!(item.tool, "Agent");
+
+        let completed = decoder
+            .decode(
+                br#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"SUBAGENT_CHILD_OK"}]}]},"tool_use_result":{"status":"completed","agentType":"Explore","agentId":"agent-123","resolvedModel":"claude-sonnet-5","totalTokens":12460},"session_id":"s"}"#,
+                "run-x",
+                "s",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+        let item = completed[0].item_completed().unwrap();
+        assert_eq!(item.kind, ItemKind::CollabToolCall);
+        assert_eq!(item.tool, "Agent");
+        assert_eq!(item.status, "completed");
+        assert_eq!(item.receiver_thread_ids, vec!["agent-123".to_string()]);
+        assert_eq!(item.aggregated_output, "SUBAGENT_CHILD_OK");
+    }
+
+    #[test]
+    fn result_total_tokens_come_from_model_usage_when_present() {
+        let mut decoder = ClaudeDecoder::default();
+        let events = decoder
+            .decode(
+                br#"{"type":"result","is_error":false,"result":"ok","session_id":"s","total_cost_usd":0.5,"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":300,"output_tokens":50},"modelUsage":{"claude-sonnet-5":{"inputTokens":100,"outputTokens":50,"cacheReadInputTokens":300,"cacheCreationInputTokens":200},"claude-haiku-4-5-20251001":{"inputTokens":8000,"outputTokens":460,"cacheReadInputTokens":3000,"cacheCreationInputTokens":1000}}}"#,
+                "run-x",
+                "s",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+        let EventPayload::TurnCompleted { usage } = &events.last().unwrap().payload else {
+            panic!("expected turn.completed");
+        };
+        assert_eq!(usage.input_tokens, 100);
+        // The root result.usage sums to 650; the subagent's 12460 tokens only
+        // appear in modelUsage, and the full-run total must include them.
+        assert_eq!(usage.total_tokens, 650 + 12460);
     }
 
     #[test]

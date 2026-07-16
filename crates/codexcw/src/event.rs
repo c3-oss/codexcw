@@ -151,7 +151,9 @@ pub struct Usage {
     /// Number of reasoning output tokens.
     #[serde(default)]
     pub reasoning_output_tokens: i64,
-    /// Total tokens reported or calculated for the turn.
+    /// Total token count for the full run, subagents included. When the
+    /// agent omits an explicit total it is derived: input plus output tokens
+    /// for Codex, and the per-model sums when Claude reports model usage.
     #[serde(default)]
     pub total_tokens: i64,
     /// Total Claude API cost in US dollars.
@@ -226,6 +228,13 @@ pub struct Item {
     pub exit_code: Option<i32>,
     /// File edits for `file_change` items.
     pub changes: Vec<FileChange>,
+    /// Collab operation (`spawn_agent`, `wait`, ...) for `collab_tool_call`
+    /// items.
+    pub tool: String,
+    /// Thread that issued a `collab_tool_call` item.
+    pub sender_thread_id: String,
+    /// Agent threads targeted by a `collab_tool_call` item.
+    pub receiver_thread_ids: Vec<String>,
 }
 
 impl Default for ItemKind {
