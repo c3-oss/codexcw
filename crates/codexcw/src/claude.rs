@@ -455,6 +455,8 @@ fn tool_item(block: &WireBlock, raw_block: &str) -> Item {
             }];
         }
         "WebSearch" => item.kind = ItemKind::WebSearch,
+        "Task" => item.kind = ItemKind::CollabToolCall,
+        "TodoWrite" => item.kind = ItemKind::PlanUpdate,
         name if name.starts_with("mcp__") => item.kind = ItemKind::McpToolCall,
         _ => item.kind = ItemKind::ToolCall,
     }
@@ -699,6 +701,24 @@ mod tests {
         assert_eq!(item.aggregated_output, "total 0");
         assert_eq!(item.status, "completed");
         assert_eq!(item.exit_code, Some(0));
+    }
+
+    #[test]
+    fn task_and_todo_tools_map_to_collab_and_plan_kinds() {
+        let mut decoder = ClaudeDecoder::default();
+        let started = decoder
+            .decode(
+                br#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"Task","input":{"subagent_type":"explore","prompt":"map the repo"}},{"type":"tool_use","id":"t2","name":"TodoWrite","input":{"todos":[]}}]},"session_id":"sess-1"}"#,
+                "run-x",
+                "sess-1",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+        let task = started[0].item_started().unwrap();
+        assert_eq!(task.kind, ItemKind::CollabToolCall);
+        assert!(task.raw.contains("subagent_type"));
+        let todo = started[1].item_started().unwrap();
+        assert_eq!(todo.kind, ItemKind::PlanUpdate);
     }
 
     #[test]
