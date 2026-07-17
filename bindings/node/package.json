@@ -51,7 +51,7 @@
     "@c3-oss/codexcw-win32-x64-msvc": "0.4.1"
   },
   "devDependencies": {
-    "@napi-rs/cli": "3.7.3"
+    "@napi-rs/cli": "3.7.2"
   },
   "scripts": {
     "build": "napi build --platform --release --js binding.js --dts binding.d.ts",
