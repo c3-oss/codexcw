@@ -424,3 +424,10 @@ coverage.out
 coverage.txt
 coverage.html
 *.db
+
+# --- .NET ---
+dotnet/**/bin/
+dotnet/**/obj/
+*.nupkg
+*.snupkg
+*.user

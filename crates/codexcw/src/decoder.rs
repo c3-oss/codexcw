@@ -46,6 +46,12 @@ struct WireItem {
     exit_code: Option<i32>,
     #[serde(default)]
     changes: Vec<FileChange>,
+    #[serde(default)]
+    tool: String,
+    #[serde(default)]
+    sender_thread_id: String,
+    #[serde(default)]
+    receiver_thread_ids: Vec<String>,
 }
 
 /// Decodes one JSONL line into an [`Event`].
@@ -83,10 +89,12 @@ pub(crate) fn decode_event(
             }
         }
         EventKind::TurnStarted => EventPayload::TurnStarted,
-        EventKind::TurnCompleted => EventPayload::TurnCompleted { usage: wire.usage },
+        EventKind::TurnCompleted => EventPayload::TurnCompleted {
+            usage: normalize_codex_usage(wire.usage),
+        },
         EventKind::TurnFailed => EventPayload::TurnFailed {
             error: decode_event_error(wire.error.as_deref()),
-            usage: wire.usage,
+            usage: normalize_codex_usage(wire.usage),
         },
         EventKind::ItemStarted => EventPayload::ItemStarted(decode_item(wire.item.as_deref())?),
         EventKind::ItemCompleted => EventPayload::ItemCompleted(decode_item(wire.item.as_deref())?),
@@ -129,7 +137,20 @@ fn decode_item(raw: Option<&RawValue>) -> Result<Item, String> {
         aggregated_output: wire.aggregated_output,
         exit_code: wire.exit_code,
         changes: wire.changes,
+        tool: wire.tool,
+        sender_thread_id: wire.sender_thread_id,
+        receiver_thread_ids: wire.receiver_thread_ids,
     })
+}
+
+/// Derives the total when Codex omits `total_tokens`. `cached_input_tokens`
+/// is a subset of `input_tokens` on the codex wire, so the derived total is
+/// input plus output; an explicit total is preserved.
+fn normalize_codex_usage(mut usage: Usage) -> Usage {
+    if usage.total_tokens == 0 {
+        usage.total_tokens = usage.input_tokens + usage.output_tokens;
+    }
+    usage
 }
 
 fn decode_event_error(raw: Option<&RawValue>) -> ErrorPayload {
@@ -216,6 +237,68 @@ mod tests {
         assert_eq!(item.kind, ItemKind::CollabToolCall);
         assert_eq!(item.status, "in_progress");
         assert!(item.raw.contains("\"tool\":\"wait\""));
+        assert_eq!(item.tool, "wait");
+        assert_eq!(item.sender_thread_id, "t-parent");
+        assert!(item.receiver_thread_ids.is_empty());
+    }
+
+    #[test]
+    fn collab_tool_call_exposes_receiver_thread_ids() {
+        let event = decode_event(
+            br#"{"type":"item.started","item":{"id":"i0","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"t-parent","receiver_thread_ids":["t-child"],"agents_states":{},"status":"in_progress"}}"#,
+            "run-x",
+            "t-parent",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let item = event.item_started().unwrap();
+        assert_eq!(item.tool, "spawn_agent");
+        assert_eq!(item.receiver_thread_ids, vec!["t-child".to_string()]);
+    }
+
+    #[test]
+    fn turn_completed_total_tokens_derived_when_omitted() {
+        // cached_input_tokens is a subset of input_tokens on the codex wire
+        // and must not be counted twice.
+        let event = decode_event(
+            br#"{"type":"turn.completed","usage":{"input_tokens":12966,"cached_input_tokens":8960,"output_tokens":6,"reasoning_output_tokens":0}}"#,
+            "run-x",
+            "t-1",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let EventPayload::TurnCompleted { usage } = &event.payload else {
+            panic!("expected turn.completed");
+        };
+        assert_eq!(usage.total_tokens, 12972);
+
+        let explicit = decode_event(
+            br#"{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3,"total_tokens":999}}"#,
+            "run-x",
+            "t-1",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let EventPayload::TurnCompleted { usage } = &explicit.payload else {
+            panic!("expected turn.completed");
+        };
+        assert_eq!(usage.total_tokens, 999);
+    }
+
+    #[test]
+    fn turn_failed_total_tokens_derived_when_omitted() {
+        let event = decode_event(
+            br#"{"type":"turn.failed","error":{"message":"boom"},"usage":{"input_tokens":12966,"cached_input_tokens":8960,"output_tokens":6}}"#,
+            "run-x",
+            "t-1",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let EventPayload::TurnFailed { error, usage } = &event.payload else {
+            panic!("expected turn.failed");
+        };
+        assert_eq!(error.message, "boom");
+        assert_eq!(usage.total_tokens, 12972);
     }
 
     #[test]

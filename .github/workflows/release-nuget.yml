@@ -1,0 +1,63 @@
+# Publishes the C3OSS.Codexcw package to nuget.org when a dotnet-v* tag is
+# pushed. Publishing uses Trusted Publishing (OIDC): NuGet/login exchanges the
+# job's GitHub OIDC token for a short-lived API key, so no long-lived nuget.org
+# secret is stored. The NUGET_USER secret holds the nuget.org profile name that
+# owns the trusted publishing policy for this repository and workflow file.
+#
+# The build runs under devbox so the release uses the same pinned .NET SDK the
+# CI lane validated.
+name: Release (NuGet)
+
+on:
+  push:
+    tags: ["dotnet-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: pack + push
+    # GitHub-hosted runner: the OIDC token exchange expects GitHub's runner
+    # identity claims.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.15.0
+        with:
+          enable-cache: true
+          devbox-version: 0.17.4
+
+      - name: Validate tag against the project version
+        if: startsWith(github.ref, 'refs/tags/dotnet-v')
+        run: |
+          tag_version="${GITHUB_REF_NAME#dotnet-v}"
+          project_version="$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' dotnet/Directory.Build.props)"
+          if [ "$tag_version" != "$project_version" ]; then
+            echo "tag dotnet-v${tag_version} does not match <Version>${project_version}</Version> in dotnet/Directory.Build.props" >&2
+            exit 1
+          fi
+
+      - name: Build, test, and verify the package
+        run: devbox run -- just dotnet-ci dotnet-verify-pack
+
+      # The short-lived key is valid for 1 hour; request it right before the
+      # push.
+      - name: NuGet login (OIDC → temp API key)
+        if: startsWith(github.ref, 'refs/tags/dotnet-v')
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push
+        if: startsWith(github.ref, 'refs/tags/dotnet-v')
+        run: >
+          devbox run -- dotnet nuget push "dist/nuget/*.nupkg"
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json

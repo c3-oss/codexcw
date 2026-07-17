@@ -122,6 +122,12 @@ pub struct PyItem {
     raw: String,
     #[pyo3(get)]
     changes: Vec<PyFileChange>,
+    #[pyo3(get)]
+    tool: String,
+    #[pyo3(get)]
+    sender_thread_id: String,
+    #[pyo3(get)]
+    receiver_thread_ids: Vec<String>,
 }
 
 /// One decoded agent event.
@@ -628,6 +634,9 @@ fn to_py_item(item: &Item) -> PyItem {
                 kind: c.kind.clone(),
             })
             .collect(),
+        tool: item.tool.clone(),
+        sender_thread_id: item.sender_thread_id.clone(),
+        receiver_thread_ids: item.receiver_thread_ids.clone(),
     }
 }
 

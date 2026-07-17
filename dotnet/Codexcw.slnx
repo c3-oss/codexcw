@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Codexcw.Tests/Codexcw.Tests.csproj" />
+  <Project Path="Codexcw/Codexcw.csproj" />
+</Solution>

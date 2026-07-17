@@ -10,6 +10,7 @@ where the language has both).
 | [Rust](rust.md) | async (`.await`) + blocking (`Runtime::block_on`) |
 | [TypeScript / Node.js](typescript.md) | async (Promises / `for await` / callback) |
 | [Python](python.md) | sync (`codexcw`) + async (`codexcw.aio`) |
+| [C# / .NET](csharp.md) | async (`RunAsync` / `await foreach` / callback) |
 
 Each page works through: quickstart, streaming events, per-event callbacks,
 **resuming a session**, sandbox modes, approval policies, **bypassing the sandbox

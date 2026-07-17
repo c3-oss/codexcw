@@ -188,6 +188,9 @@ export interface Item {
   exitCode?: number
   raw: string
   changes: FileChange[]
+  tool: string
+  senderThreadId: string
+  receiverThreadIds: string[]
 }
 
 /** One decoded agent event. */

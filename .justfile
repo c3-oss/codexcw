@@ -127,6 +127,59 @@ py-test:
 py-ci: py-build py-test
 
 # --------------------------------------------------------------------------------------------------
+# .NET port (C3OSS.Codexcw)
+
+dotnet-build:
+    dotnet build dotnet/Codexcw.slnx
+
+dotnet-test:
+    dotnet test dotnet/Codexcw.slnx --no-build
+
+dotnet-fmt:
+    dotnet format dotnet/Codexcw.slnx
+
+dotnet-fmt-check:
+    dotnet format dotnet/Codexcw.slnx --verify-no-changes
+
+dotnet-pack:
+    dotnet pack dotnet/Codexcw/Codexcw.csproj -c Release -o dist/nuget
+
+# pack, check the nuspec version, and build a consumer against the package
+dotnet-verify-pack: dotnet-pack
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' dotnet/Directory.Build.props)"
+    package="$(pwd)/dist/nuget/C3OSS.Codexcw.${version}.nupkg"
+    [ -f "$package" ] || { echo "missing ${package}" >&2; exit 1; }
+    unzip -p "$package" C3OSS.Codexcw.nuspec | grep -q "<version>${version}</version>" \
+      || { echo "nuspec version does not match ${version}" >&2; exit 1; }
+    consumer="$(mktemp -d)"
+    trap 'rm -rf "$consumer"' EXIT
+    cat > "$consumer/Consumer.csproj" <<EOF
+    <Project Sdk="Microsoft.NET.Sdk">
+      <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RestoreAdditionalProjectSources>$(pwd)/dist/nuget</RestoreAdditionalProjectSources>
+      </PropertyGroup>
+      <ItemGroup>
+        <PackageReference Include="C3OSS.Codexcw" Version="${version}" />
+      </ItemGroup>
+    </Project>
+    EOF
+    cat > "$consumer/Program.cs" <<'EOF'
+    using C3OSS.Codexcw;
+
+    var runner = new Runner(new RunnerOptions { Agent = Agent.Codex, Executable = "codex" });
+    Console.WriteLine(runner.GetType().Assembly.FullName);
+    EOF
+    dotnet build "$consumer"
+
+dotnet-ci: dotnet-build dotnet-fmt-check dotnet-test
+
+# --------------------------------------------------------------------------------------------------
 # Cross-cutting quality gates
 
 # lint tracked Markdown files
@@ -153,7 +206,7 @@ tools: go-tools rust-tools
 # --------------------------------------------------------------------------------------------------
 
 # full local CI lane (mirrors .github/workflows/ci.yml)
-ci: go-ci rust-ci node-ci py-ci quality
+ci: go-ci rust-ci node-ci py-ci dotnet-ci quality
     git diff --exit-code
 
 # remove build outputs across all languages
@@ -162,3 +215,4 @@ clean:
     cargo clean
     rm -rf bindings/node/node_modules bindings/node/*.node
     rm -rf bindings/python/.venv bindings/python/python/codexcw/_codexcw*.so
+    rm -rf dotnet/Codexcw/bin dotnet/Codexcw/obj dotnet/Codexcw.Tests/bin dotnet/Codexcw.Tests/obj

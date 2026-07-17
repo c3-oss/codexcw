@@ -176,6 +176,66 @@ jobs:
       - name: Test
         run: devbox run -- just node-test
 
+  dotnet:
+    name: dotnet / build + fmt + test
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.15.0
+        with:
+          enable-cache: true
+          devbox-version: 0.17.4
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ubuntu-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
+          restore-keys: ubuntu-nuget-
+      - name: Build
+        run: devbox run -- just dotnet-build
+      - name: Format check
+        run: devbox run -- just dotnet-fmt-check
+      - name: Test
+        run: devbox run -- just dotnet-test
+      - name: Verify package
+        run: devbox run -- just dotnet-verify-pack
+
+  dotnet-compat:
+    name: dotnet / runtime matrix
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # net8.0 is the oldest published target; the devbox lane only ships
+          # SDK 10, so this lane installs both runtimes and runs the suite on
+          # each TFM.
+          - os: ubuntu-latest
+            runs-on: blacksmith-2vcpu-ubuntu-2404
+          # The package has no OS restriction; Windows runs the build and the
+          # platform-independent tests (process tests are Unix-only).
+          - os: windows-latest
+            runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ matrix.os }}-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
+          restore-keys: ${{ matrix.os }}-nuget-
+      - name: Test (net8.0 and net10.0)
+        run: dotnet test dotnet/Codexcw.slnx -p:TestAllFrameworks=true
+
   python:
     name: python / ${{ matrix.os }}
     runs-on: ${{ matrix.runs-on }}

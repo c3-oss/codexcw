@@ -165,7 +165,10 @@ type Usage struct {
 	// ReasoningOutputTokens is the number of reasoning output tokens.
 	ReasoningOutputTokens int64 `json:"reasoning_output_tokens"`
 
-	// TotalTokens is the reported or derived total token count.
+	// TotalTokens is the total token count for the full run, subagents
+	// included. When the agent omits an explicit total it is derived: input
+	// plus output tokens for Codex, and the per-model sums when Claude
+	// reports model usage.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// TotalCostUSD is the total Claude run cost in US dollars.
@@ -239,6 +242,17 @@ type Item struct {
 
 	// Changes lists file edits for file_change items.
 	Changes []FileChange
+
+	// Tool is the collab operation (spawn_agent, wait, ...) for
+	// collab_tool_call items.
+	Tool string
+
+	// SenderThreadID is the thread that issued a collab_tool_call item.
+	SenderThreadID string
+
+	// ReceiverThreadIDs lists the agent threads targeted by a
+	// collab_tool_call item.
+	ReceiverThreadIDs []string
 }
 
 // FileChange describes one file_change entry.

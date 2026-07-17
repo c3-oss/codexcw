@@ -14,6 +14,7 @@ exclude = [
   "npmjs\\.com/package/@c3-oss/codexcw",
   "pypi\\.org/project/codexcw",
   "crates\\.io/crates/codexcw",
+  "nuget\\.org/packages/C3OSS\\.Codexcw",
 ]
 
 exclude_path = [
@@ -21,4 +22,8 @@ exclude_path = [
   "target",
   "dist",
   ".venv",
+  "dotnet/Codexcw/bin",
+  "dotnet/Codexcw/obj",
+  "dotnet/Codexcw.Tests/bin",
+  "dotnet/Codexcw.Tests/obj",
 ]
