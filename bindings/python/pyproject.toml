@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "codexcw"
-version = "0.3.0"
+version = "0.4.0"
 description = "Run Codex or Claude Code non-interactively from Python, backed by a Rust core."
 readme = "README.md"
 requires-python = ">=3.9"
