@@ -7,8 +7,9 @@ Run Codex or Claude Code non-interactively: spawn the selected agent, decode its
 JSONL event stream, and expose each run as streams, callbacks, results, and
 typed errors.
 
-`codexcw` ships as **five independent, idiomatic implementations** of the same
-contract — there is no FFI between them; each is native to its ecosystem:
+`codexcw` ships as **five idiomatic packages** for the same contract. Three are
+FFI-free native implementations (Go, Rust, .NET); the npm and PyPI packages are
+thin, idiomatic bindings over the Rust core (napi-rs / PyO3):
 
 | Language   | Package                        | Install |
 | ---------- | ------------------------------ | ------- |
