@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/codexcw",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Run Codex or Claude Code non-interactively from Node.js, backed by a Rust core.",
   "license": "CC0-1.0",
   "repository": {
@@ -43,12 +43,12 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@c3-oss/codexcw-darwin-x64": "0.4.0",
-    "@c3-oss/codexcw-darwin-arm64": "0.4.0",
-    "@c3-oss/codexcw-linux-x64-gnu": "0.4.0",
-    "@c3-oss/codexcw-linux-arm64-gnu": "0.4.0",
-    "@c3-oss/codexcw-linux-x64-musl": "0.4.0",
-    "@c3-oss/codexcw-win32-x64-msvc": "0.4.0"
+    "@c3-oss/codexcw-darwin-x64": "0.4.1",
+    "@c3-oss/codexcw-darwin-arm64": "0.4.1",
+    "@c3-oss/codexcw-linux-x64-gnu": "0.4.1",
+    "@c3-oss/codexcw-linux-arm64-gnu": "0.4.1",
+    "@c3-oss/codexcw-linux-x64-musl": "0.4.1",
+    "@c3-oss/codexcw-win32-x64-msvc": "0.4.1"
   },
   "devDependencies": {
     "@napi-rs/cli": "3.7.3"
