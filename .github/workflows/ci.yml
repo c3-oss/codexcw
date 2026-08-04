@@ -202,10 +202,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # RUST_TEST_THREADS caps the parallelism of `cargo test`. It is a
+      # migration guard: the 4 vCPU GitHub-hosted runner makes the ETXTBSY race
+      # in the fake-executable fixtures likely enough to force reruns. The real
+      # fix belongs in the fixture and is tracked separately.
       - name: rust / fmt + clippy + test + audit
         id: rust-ci
         continue-on-error: true
         if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.global == 'true'
+        env:
+          RUST_TEST_THREADS: 2
         run: devbox run -- just rust-ci
 
       # The addon is compiled from the workspace crate, so a Rust change has to
