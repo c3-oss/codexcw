@@ -101,11 +101,6 @@ jobs:
           enable-cache: true
           devbox-version: 0.17.4
 
-      - name: Cache cargo and target
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
       # devbox.lock is in the key because this job restores with the devbox SDK.
       - name: Restore NuGet cache
         id: nuget-cache
@@ -117,6 +112,19 @@ jobs:
 
       - name: Install Node tooling
         run: devbox run -- pnpm install --frozen-lockfile
+
+      # `save-if` is evaluated when this step runs, so it cannot consult the
+      # lanes that populate the cache. Gating the whole action on those lanes
+      # gives the same protection as the explicit saves below: when no Cargo
+      # lane will run, nothing is restored and nothing is saved, so an empty
+      # target can never be frozen under the exact key. It sits after the last
+      # step that can abort the job, since every check below is
+      # continue-on-error and cannot fail-fast past it.
+      - name: Cache cargo and target
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.node == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.global == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Lint commit messages
         id: commitlint
