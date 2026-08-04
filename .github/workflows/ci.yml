@@ -246,10 +246,13 @@ jobs:
           STEPS: ${{ toJSON(steps) }}
         run: |
           set -euo pipefail
-          failed=$(printf '%s' "$STEPS" | jq -r 'to_entries[] | select(.value.outcome == "failure") | .key')
+          failed=$(printf '%s' "$STEPS" | jq -r '
+            to_entries[]
+            | select([.value.outcome, .value.conclusion] | any(. == "failure" or . == "cancelled"))
+            | .key')
           if [ -n "$failed" ]; then
             printf 'failed checks:\n%s\n' "$failed"
-            printf '%s' "$failed" | while read -r s; do echo "::error::check failed: $s"; done
+            printf '%s\n' "$failed" | while read -r s; do echo "::error::check failed: $s"; done
             exit 1
           fi
           echo "all checks passed"
