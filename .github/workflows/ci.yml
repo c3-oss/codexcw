@@ -113,18 +113,19 @@ jobs:
       - name: Install Node tooling
         run: devbox run -- pnpm install --frozen-lockfile
 
-      # `save-if` is evaluated when this step runs, so it cannot consult the
-      # lanes that populate the cache. Gating the whole action on those lanes
-      # gives the same protection as the explicit saves below: when no Cargo
-      # lane will run, nothing is restored and nothing is saved, so an empty
-      # target can never be frozen under the exact key. It sits after the last
-      # step that can abort the job, since every check below is
-      # continue-on-error and cannot fail-fast past it.
+      # The gate skips the restore when no Cargo lane is scheduled; `save-if`
+      # then requires one to have actually reached cargo, since a lane dying
+      # before it compiles would otherwise freeze an empty target under the
+      # exact key. `save-if` is read by the post step, so it sees these
+      # outcomes. `cache-on-failure` stays because the action declares
+      # `post-if: success() || env.CACHE_ON_FAILURE == 'true'`, and the
+      # aggregator has already made the job red by then.
       - name: Cache cargo and target
         if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.node == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.global == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          save-if: ${{ steps.rust-ci.outcome == 'success' || steps.node-ci.outcome == 'success' || steps.py-ci.outcome == 'success' }}
 
       - name: Lint commit messages
         id: commitlint
