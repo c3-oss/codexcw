@@ -236,12 +236,15 @@ jobs:
     name: dotnet / runtime matrix
     needs: changes
     if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.global == 'true'
-    # net8.0 is the oldest published target; the devbox lane only ships SDK 10,
-    # so this lane installs both runtimes and runs the suite on each TFM. The
-    # package has no OS restriction; Windows runs the build and the
-    # platform-independent tests (process tests are Unix-only). The Linux leg is
-    # covered by the `ci` job.
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # net8.0 is the oldest published target and the devbox lane only ships
+        # SDK 10, so this job installs both runtimes and runs the suite on each
+        # TFM. Linux is where the Unix-only process tests actually execute;
+        # Windows covers the platform-independent surface.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -257,8 +260,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
-          key: windows-latest-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
-          restore-keys: windows-latest-nuget-
+          key: ${{ matrix.os }}-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
+          restore-keys: ${{ matrix.os }}-nuget-
 
       - name: Test (net8.0 and net10.0)
         run: dotnet test dotnet/Codexcw.slnx -p:TestAllFrameworks=true
