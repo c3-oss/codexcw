@@ -174,8 +174,15 @@ jobs:
         if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
         run: devbox run -- just go-build
 
+      # Publishing under the exact primary key is irreversible, and a later run
+      # that hits it skips its own save. So only save once a step that actually
+      # populates this cache has completed.
       - name: Save Go cache
-        if: always() && steps.go-cache.outputs.cache-hit != 'true'
+        if: >-
+          always() && !cancelled()
+          && steps.go-cache.outcome == 'success'
+          && steps.go-cache.outputs.cache-hit != 'true'
+          && (steps.go-tidy-check.outcome == 'success' || steps.go-test.outcome == 'success' || steps.go-build.outcome == 'success')
         continue-on-error: true
         uses: actions/cache/save@v6
         with:
@@ -234,7 +241,11 @@ jobs:
         run: devbox run -- just dotnet-verify-pack
 
       - name: Save NuGet cache
-        if: always() && steps.nuget-cache.outputs.cache-hit != 'true'
+        if: >-
+          always() && !cancelled()
+          && steps.nuget-cache.outcome == 'success'
+          && steps.nuget-cache.outputs.cache-hit != 'true'
+          && (steps.dotnet-ci.outcome == 'success' || steps.dotnet-verify-pack.outcome == 'success')
         continue-on-error: true
         uses: actions/cache/save@v6
         with:
@@ -291,10 +302,15 @@ jobs:
           restore-keys: ${{ matrix.os }}-nuget-
 
       - name: Test (net8.0 and net10.0)
+        id: dotnet-test
         run: dotnet test dotnet/Codexcw.slnx -p:TestAllFrameworks=true
 
       - name: Save NuGet cache
-        if: always() && steps.nuget-cache.outputs.cache-hit != 'true'
+        if: >-
+          always() && !cancelled()
+          && steps.nuget-cache.outcome == 'success'
+          && steps.nuget-cache.outputs.cache-hit != 'true'
+          && steps.dotnet-test.outcome == 'success'
         continue-on-error: true
         uses: actions/cache/save@v6
         with:
