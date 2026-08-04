@@ -80,6 +80,11 @@ jobs:
 
       # Restore and save are split so the cache is still written when a check
       # fails: the post step of actions/cache only runs on success.
+      #
+      # Under GOTOOLCHAIN=auto a `go` directive newer than the devbox toolchain
+      # is downloaded into GOMODCACHE, which lives inside this cache and is not
+      # recorded in go.sum. go.mod and devbox.lock are part of the key so that
+      # switch produces a miss instead of a permanent stale hit.
       - name: Restore Go cache
         id: go-cache
         uses: actions/cache/restore@v6
@@ -87,8 +92,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ubuntu-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: ubuntu-go-
+          key: ${{ runner.os }}-${{ runner.arch }}-go-${{ hashFiles('go.mod', 'go.sum', 'devbox.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-go-
 
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.15.0
@@ -101,13 +106,14 @@ jobs:
         with:
           cache-on-failure: true
 
+      # devbox.lock is in the key because this job restores with the devbox SDK.
       - name: Restore NuGet cache
         id: nuget-cache
         uses: actions/cache/restore@v6
         with:
           path: ~/.nuget/packages
-          key: ubuntu-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
-          restore-keys: ubuntu-nuget-
+          key: ${{ runner.os }}-${{ runner.arch }}-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props', 'devbox.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-nuget-
 
       - name: Install Node tooling
         run: devbox run -- pnpm install --frozen-lockfile
@@ -293,6 +299,8 @@ jobs:
             8.0.x
             10.0.x
 
+      # No devbox.lock in the key: this job takes its SDK from setup-dotnet
+      # above, not from devbox.
       - name: Restore NuGet cache
         id: nuget-cache
         uses: actions/cache/restore@v6
