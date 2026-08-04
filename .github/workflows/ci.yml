@@ -65,8 +65,13 @@ jobs:
               - 'bindings/node/**'
             python:
               - 'bindings/python/**'
+            # `dotnet format` is the only checker here that reads .editorconfig,
+            # and it inherits the root file because dotnet/.editorconfig does
+            # not set `root = true`. rustfmt, gofumpt and markdownlint-cli2 all
+            # ignore it, so it does not belong in their lanes.
             dotnet:
               - 'dotnet/**'
+              - '.editorconfig'
 
   ci:
     name: ci
