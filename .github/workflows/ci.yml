@@ -85,10 +85,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Restored before devbox: the devbox init_hook runs during installation
-      # and resolves Go tooling through the module cache.
-      - name: Cache Go modules and build
-        uses: actions/cache@v6
+      # Restore and save are split so the cache is still written when a check
+      # fails: the post step of actions/cache only runs on success.
+      - name: Restore Go cache
+        id: go-cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/go/pkg/mod
@@ -104,9 +105,12 @@ jobs:
 
       - name: Cache cargo and target
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
-      - name: Cache NuGet packages
-        uses: actions/cache@v6
+      - name: Restore NuGet cache
+        id: nuget-cache
+        uses: actions/cache/restore@v6
         with:
           path: ~/.nuget/packages
           key: ubuntu-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
@@ -177,6 +181,16 @@ jobs:
         if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
         run: devbox run -- just go-build
 
+      - name: Save Go cache
+        if: always() && steps.go-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
       - name: Upload coverage
         if: always() && steps.go-test.outcome != 'skipped'
         continue-on-error: true
@@ -218,6 +232,14 @@ jobs:
         if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.global == 'true'
         run: devbox run -- just dotnet-verify-pack
 
+      - name: Save NuGet cache
+        if: always() && steps.nuget-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ steps.nuget-cache.outputs.cache-primary-key }}
+
       - name: Aggregate check results
         if: always()
         env:
@@ -256,8 +278,9 @@ jobs:
             8.0.x
             10.0.x
 
-      - name: Cache NuGet packages
-        uses: actions/cache@v6
+      - name: Restore NuGet cache
+        id: nuget-cache
+        uses: actions/cache/restore@v6
         with:
           path: ~/.nuget/packages
           key: ${{ matrix.os }}-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
@@ -265,3 +288,11 @@ jobs:
 
       - name: Test (net8.0 and net10.0)
         run: dotnet test dotnet/Codexcw.slnx -p:TestAllFrameworks=true
+
+      - name: Save NuGet cache
+        if: always() && steps.nuget-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ steps.nuget-cache.outputs.cache-primary-key }}
