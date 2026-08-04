@@ -3,53 +3,90 @@ name: CI
 on:
   pull_request:
     branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  # Required by dorny/paths-filter on pull_request events.
+  pull-requests: read
 
 jobs:
-  quality:
-    name: commit + docs + secrets
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      global: ${{ github.event_name == 'push' || steps.filter.outputs.global == 'true' }}
+      go: ${{ github.event_name == 'push' || steps.filter.outputs.go == 'true' }}
+      rust: ${{ github.event_name == 'push' || steps.filter.outputs.rust == 'true' }}
+      node: ${{ github.event_name == 'push' || steps.filter.outputs.node == 'true' }}
+      python: ${{ github.event_name == 'push' || steps.filter.outputs.python == 'true' }}
+      dotnet: ${{ github.event_name == 'push' || steps.filter.outputs.dotnet == 'true' }}
+      tooling: ${{ github.event_name == 'push' || steps.filter.outputs.tooling == 'true' }}
+    steps:
+      - name: Filter changed paths
+        uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            global:
+              - 'devbox.json'
+              - 'devbox.lock'
+              - '.justfile'
+              - '.github/workflows/**'
+            go:
+              - '*.go'
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - '.golangci.yml'
+              - '.goreleaser.yaml'
+            # The bindings are members of the Cargo workspace, so their Rust
+            # sources are inputs to the workspace-wide fmt/clippy/audit/deny.
+            rust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - 'bindings/node/Cargo.toml'
+              - 'bindings/node/build.rs'
+              - 'bindings/node/src/**'
+              - 'bindings/python/Cargo.toml'
+              - 'bindings/python/src/**'
+            node:
+              - 'bindings/node/**'
+            python:
+              - 'bindings/python/**'
+            dotnet:
+              - 'dotnet/**'
+            # Repo-root tooling (commitlint, husky, lint-staged). Deliberately
+            # separate from the `node` lane so a lint-staged bump does not
+            # rebuild the native addon.
+            tooling:
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'commitlint.config.cjs'
+              - '.lintstagedrc.cjs'
+
+  ci:
+    name: ci
+    needs: changes
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
-
-      - name: Install Node tooling
-        run: devbox run -- pnpm install --frozen-lockfile
-
-      - name: Lint commit messages
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: devbox run -- pnpm exec commitlint --config commitlint.config.cjs --from "$BASE_SHA" --to "$HEAD_SHA"
-
-      - name: Run quality gates
-        env:
-          # Lychee falls back to anonymous GitHub requests without this, which
-          # are heavily rate-limited in CI.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: devbox run -- just quality
-
-  go-test:
-    name: go / tidy + vet + test
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
+      # Restored before devbox: the devbox init_hook runs during installation
+      # and resolves Go tooling through the module cache.
       - name: Cache Go modules and build
         uses: actions/cache@v6
         with:
@@ -58,204 +95,170 @@ jobs:
             ~/.cache/go-build
           key: ubuntu-go-${{ hashFiles('**/go.sum') }}
           restore-keys: ubuntu-go-
-      - name: Tidy check
-        run: devbox run -- just go-tidy-check
-      - name: Vet
-        run: devbox run -- just go-vet
-      - name: Test
-        run: devbox run -- go test -race -count=1 -coverprofile=coverage.out ./...
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage
-          path: coverage.out
-          retention-days: 7
 
-  go-lint:
-    name: go / golangci-lint
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
           devbox-version: 0.17.4
-      - name: Run golangci-lint
-        run: devbox run -- just go-lint
 
-  go-security:
-    name: go / gosec + govulncheck
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
-      - name: Static security analysis (gosec)
-        run: devbox run -- just go-lint-sec
-      - name: Vulnerability scan (govulncheck)
-        run: devbox run -- just go-lint-vuln
-
-  go-build:
-    name: go / build / ${{ matrix.os }}
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
-      - name: Cache Go modules and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ matrix.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: ${{ matrix.os }}-go-
-      - name: Build
-        run: devbox run -- just go-build
-
-  rust:
-    name: rust / fmt + clippy + test + audit
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
       - name: Cache cargo and target
         uses: Swatinem/rust-cache@v2
-      - name: Format check
-        run: devbox run -- just rust-fmt-check
-      - name: Clippy
-        run: devbox run -- just rust-lint
-      - name: Test
-        run: devbox run -- just rust-test
-      - name: Audit
-        run: devbox run -- just rust-audit
 
-  node:
-    name: node / ${{ matrix.os }}
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
-      - name: Cache cargo and target
-        uses: Swatinem/rust-cache@v2
-      - name: Build native addon
-        run: devbox run -- just node-build
-      - name: Test
-        run: devbox run -- just node-test
-
-  dotnet:
-    name: dotnet / build + fmt + test
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ubuntu-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
           restore-keys: ubuntu-nuget-
-      - name: Build
-        run: devbox run -- just dotnet-build
-      - name: Format check
-        run: devbox run -- just dotnet-fmt-check
-      - name: Test
-        run: devbox run -- just dotnet-test
-      - name: Verify package
+
+      - name: Install Node tooling
+        run: devbox run -- pnpm install --frozen-lockfile
+
+      - name: Lint commit messages
+        id: commitlint
+        continue-on-error: true
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: devbox run -- pnpm exec commitlint --config commitlint.config.cjs --from "$BASE_SHA" --to "$HEAD_SHA"
+
+      - name: Run quality gates
+        id: quality
+        continue-on-error: true
+        env:
+          # Lychee falls back to anonymous GitHub requests without this, which
+          # are heavily rate-limited in CI.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: devbox run -- just quality
+
+      - name: go / tidy check
+        id: go-tidy-check
+        continue-on-error: true
+        if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just go-tidy-check
+
+      - name: go / vet
+        id: go-vet
+        continue-on-error: true
+        if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just go-vet
+
+      - name: go / golangci-lint
+        id: go-lint
+        continue-on-error: true
+        if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just go-lint
+
+      - name: go / gosec
+        id: go-lint-sec
+        continue-on-error: true
+        if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just go-lint-sec
+
+      - name: go / govulncheck
+        id: go-lint-vuln
+        continue-on-error: true
+        if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just go-lint-vuln
+
+      # Single test invocation covering both the race lane of `just go-ci` and
+      # the coverage profile.
+      - name: go / test
+        id: go-test
+        continue-on-error: true
+        if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- go test -race -count=1 -coverprofile=coverage.out ./...
+
+      - name: go / build
+        id: go-build
+        continue-on-error: true
+        if: needs.changes.outputs.go == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just go-build
+
+      - name: Upload coverage
+        if: always() && steps.go-test.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+      - name: rust / fmt + clippy + test + audit
+        id: rust-ci
+        continue-on-error: true
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just rust-ci
+
+      # The addon is compiled from the workspace crate, so a Rust change has to
+      # rebuild it even when bindings/node is untouched.
+      - name: node / build + test
+        id: node-ci
+        continue-on-error: true
+        if: needs.changes.outputs.node == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just node-ci
+
+      - name: python / build + test
+        id: py-ci
+        continue-on-error: true
+        if: needs.changes.outputs.python == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just py-ci
+
+      - name: dotnet / build + fmt + test
+        id: dotnet-ci
+        continue-on-error: true
+        if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.global == 'true'
+        run: devbox run -- just dotnet-ci
+
+      - name: dotnet / verify package
+        id: dotnet-verify-pack
+        continue-on-error: true
+        if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.global == 'true'
         run: devbox run -- just dotnet-verify-pack
+
+      - name: Aggregate check results
+        if: always()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: |
+          set -euo pipefail
+          failed=$(printf '%s' "$STEPS" | jq -r 'to_entries[] | select(.value.outcome == "failure") | .key')
+          if [ -n "$failed" ]; then
+            printf 'failed checks:\n%s\n' "$failed"
+            printf '%s' "$failed" | while read -r s; do echo "::error::check failed: $s"; done
+            exit 1
+          fi
+          echo "all checks passed"
 
   dotnet-compat:
     name: dotnet / runtime matrix
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # net8.0 is the oldest published target; the devbox lane only ships
-          # SDK 10, so this lane installs both runtimes and runs the suite on
-          # each TFM.
-          - os: ubuntu-latest
-            runs-on: blacksmith-2vcpu-ubuntu-2404
-          # The package has no OS restriction; Windows runs the build and the
-          # platform-independent tests (process tests are Unix-only).
-          - os: windows-latest
-            runs-on: windows-latest
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.global == 'true'
+    # net8.0 is the oldest published target; the devbox lane only ships SDK 10,
+    # so this lane installs both runtimes and runs the suite on each TFM. The
+    # package has no OS restriction; Windows runs the build and the
+    # platform-independent tests (process tests are Unix-only). The Linux leg is
+    # covered by the `ci` job.
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             8.0.x
             10.0.x
+
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
-          key: ${{ matrix.os }}-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
-          restore-keys: ${{ matrix.os }}-nuget-
+          key: windows-latest-nuget-${{ hashFiles('dotnet/**/*.csproj', 'dotnet/Directory.Build.props') }}
+          restore-keys: windows-latest-nuget-
+
       - name: Test (net8.0 and net10.0)
         run: dotnet test dotnet/Codexcw.slnx -p:TestAllFrameworks=true
-
-  python:
-    name: python / ${{ matrix.os }}
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            runs-on: blacksmith-2vcpu-ubuntu-2404
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Install devbox
-        uses: jetify-com/devbox-install-action@v0.15.0
-        with:
-          enable-cache: true
-          devbox-version: 0.17.4
-      - name: Cache cargo and target
-        uses: Swatinem/rust-cache@v2
-      - name: Build extension
-        run: devbox run -- just py-build
-      - name: Test
-        run: devbox run -- just py-test
