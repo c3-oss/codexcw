@@ -38,6 +38,9 @@ jobs:
               - 'devbox.lock'
               - '.justfile'
               - '.github/workflows/**'
+              # Checkout transformations apply to every file, so a change here
+              # can break any lane, not just the one that owns the paths.
+              - '.gitattributes'
             go:
               - '*.go'
               - '**/*.go'
