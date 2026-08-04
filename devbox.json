@@ -4,6 +4,8 @@
     "go": "1.26",
     "golangci-lint": "2.12",
     "gofumpt": "0.10",
+    "govulncheck": "1.6.0",
+    "gosec": "2.28.0",
     "goreleaser": "2.15",
     "syft": "1.18",
     "rustup": "1.28.2",
@@ -35,8 +37,6 @@
       "export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}",
       "export PATH=$GOBIN:$CARGO_HOME/bin:$PATH",
       "rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy",
-      "if [ ! -x \"$GOBIN/govulncheck\" ]; then go install golang.org/x/vuln/cmd/govulncheck@latest; fi",
-      "if [ ! -x \"$GOBIN/gosec\" ]; then go install github.com/securego/gosec/v2/cmd/gosec@latest; fi",
       "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi"
     ]
   }
