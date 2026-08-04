@@ -35,7 +35,7 @@
     "init_hook": [
       "export GOBIN=$PWD/bin",
       "export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}",
-      "export PATH=$GOBIN:$CARGO_HOME/bin:$PATH",
+      "export PATH=$PATH:$CARGO_HOME/bin:$GOBIN",
       "rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy",
       "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi"
     ]
