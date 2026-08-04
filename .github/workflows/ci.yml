@@ -26,7 +26,6 @@ jobs:
       node: ${{ github.event_name == 'push' || steps.filter.outputs.node == 'true' }}
       python: ${{ github.event_name == 'push' || steps.filter.outputs.python == 'true' }}
       dotnet: ${{ github.event_name == 'push' || steps.filter.outputs.dotnet == 'true' }}
-      tooling: ${{ github.event_name == 'push' || steps.filter.outputs.tooling == 'true' }}
     steps:
       - name: Filter changed paths
         uses: dorny/paths-filter@v4
@@ -60,20 +59,14 @@ jobs:
               - 'bindings/node/src/**'
               - 'bindings/python/Cargo.toml'
               - 'bindings/python/src/**'
+            # The repo-root package.json is tooling only (commitlint, husky,
+            # lint-staged) and is not an input to the native addon.
             node:
               - 'bindings/node/**'
             python:
               - 'bindings/python/**'
             dotnet:
               - 'dotnet/**'
-            # Repo-root tooling (commitlint, husky, lint-staged). Deliberately
-            # separate from the `node` lane so a lint-staged bump does not
-            # rebuild the native addon.
-            tooling:
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'commitlint.config.cjs'
-              - '.lintstagedrc.cjs'
 
   ci:
     name: ci
