@@ -8,22 +8,25 @@ public enum Agent
 
     /// <summary>Wraps claude -p --output-format stream-json.</summary>
     Claude,
+
+    /// <summary>Wraps grok --output-format streaming-messages-json.</summary>
+    Grok,
 }
 
-/// <summary>The sandbox policy passed to codex exec.</summary>
+/// <summary>The Codex sandbox or mapped Grok sandbox profile.</summary>
 public enum SandboxMode
 {
-    /// <summary>Lets Codex inspect files without write access.</summary>
+    /// <summary>Lets the selected agent inspect files without write access.</summary>
     ReadOnly,
 
-    /// <summary>Lets Codex write inside the configured workspace.</summary>
+    /// <summary>Lets the selected agent write inside the configured workspace.</summary>
     WorkspaceWrite,
 
-    /// <summary>Removes Codex sandbox filesystem restrictions.</summary>
+    /// <summary>Removes agent sandbox filesystem restrictions.</summary>
     DangerFullAccess,
 }
 
-/// <summary>The Codex approval behavior applied through config overrides.</summary>
+/// <summary>Codex approval behavior or mapped Grok permissions.</summary>
 public enum ApprovalPolicy
 {
     /// <summary>Asks before commands outside Codex's trusted set.</summary>
@@ -36,13 +39,13 @@ public enum ApprovalPolicy
     Never,
 }
 
-/// <summary>The permission behavior of a claude agent run.</summary>
+/// <summary>The permission behavior of a Claude or Grok run.</summary>
 public enum PermissionMode
 {
     /// <summary>Auto-approves file edits inside the workspace.</summary>
     AcceptEdits,
 
-    /// <summary>Lets Claude choose when to request permission.</summary>
+    /// <summary>Lets the selected agent choose when to request permission.</summary>
     Auto,
 
     /// <summary>Skips all permission checks.</summary>
@@ -51,7 +54,7 @@ public enum PermissionMode
     /// <summary>Requires explicit permission for tool use.</summary>
     Manual,
 
-    /// <summary>Keeps Claude in read-only planning mode.</summary>
+    /// <summary>Keeps the selected agent in read-only planning mode.</summary>
     Plan,
 
     /// <summary>Denies any action that would prompt for approval.</summary>
@@ -93,7 +96,7 @@ public sealed record Request
     /// </summary>
     public Stream? Stdin { get; init; }
 
-    /// <summary>The working directory passed to codex exec as -C.</summary>
+    /// <summary>The selected agent's working directory.</summary>
     public string? Dir { get; init; }
 
     /// <summary>Additional directories the selected agent may access.</summary>
@@ -105,22 +108,22 @@ public sealed record Request
     /// <summary>Overrides the selected agent's model for this run.</summary>
     public string? Model { get; init; }
 
-    /// <summary>Selects a Codex config profile.</summary>
+    /// <summary>Selects a Codex config profile or Grok agent.</summary>
     public string? Profile { get; init; }
 
-    /// <summary>The Codex sandbox policy (codex agent only).</summary>
+    /// <summary>The Codex or Grok sandbox policy.</summary>
     public SandboxMode? Sandbox { get; init; }
 
-    /// <summary>The Codex approval policy applied through -c (codex agent only).</summary>
+    /// <summary>The Codex or Grok approval policy.</summary>
     public ApprovalPolicy? Approval { get; init; }
 
-    /// <summary>The Claude permission mode (claude agent only).</summary>
+    /// <summary>The Claude or Grok permission mode.</summary>
     public PermissionMode? PermissionMode { get; init; }
 
-    /// <summary>Tool patterns Claude may use without prompting (claude agent only).</summary>
+    /// <summary>Tool patterns Claude or Grok may use without prompting.</summary>
     public IReadOnlyList<string> AllowedTools { get; init; } = [];
 
-    /// <summary>Tool patterns denied to Claude (claude agent only).</summary>
+    /// <summary>Tool patterns denied to Claude or Grok.</summary>
     public IReadOnlyList<string> DisallowedTools { get; init; } = [];
 
     /// <summary>Raw Codex -c config overrides.</summary>
@@ -135,7 +138,7 @@ public sealed record Request
     /// <summary>Makes Codex reject unrecognized config fields.</summary>
     public bool StrictConfig { get; init; }
 
-    /// <summary>Keeps the selected agent's session data on disk.</summary>
+    /// <summary>Keeps session data on disk. Grok sessions are always persisted.</summary>
     public bool Persistent { get; init; }
 
     /// <summary>Skips CODEX_HOME/config.toml.</summary>
@@ -150,13 +153,13 @@ public sealed record Request
     /// <summary>A JSON Schema file path for the final response.</summary>
     public string? OutputSchemaPath { get; init; }
 
-    /// <summary>Inline JSON Schema text written to a temporary file for the run.</summary>
+    /// <summary>Inline JSON Schema text for the final response.</summary>
     public string? OutputSchema { get; init; }
 
     /// <summary>Asks Codex to write the final message to this file.</summary>
     public string? OutputLastMessagePath { get; init; }
 
-    /// <summary>Passes Codex's full bypass flag.</summary>
+    /// <summary>Passes the selected agent's full bypass flag.</summary>
     public bool DangerouslyBypassSandbox { get; init; }
 
     /// <summary>Runs enabled hooks without persisted trust.</summary>
@@ -181,6 +184,7 @@ internal static class Wire
     {
         Agent.Codex => "codex",
         Agent.Claude => "claude",
+        Agent.Grok => "grok",
         _ => throw new InvalidRequestException($"unknown agent {(int)agent}"),
     };
 

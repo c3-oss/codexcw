@@ -52,7 +52,7 @@ public enum ItemKind
     /// <summary>A plan update.</summary>
     PlanUpdate,
 
-    /// <summary>A generic tool call from the claude agent.</summary>
+    /// <summary>A generic tool call from an agent.</summary>
     ToolCall,
 
     /// <summary>A multi-agent collab tool call (spawn/wait/send between agent threads).</summary>
@@ -210,19 +210,19 @@ public sealed record Usage
     /// <summary>
     /// The total token count for the full run, subagents included. When the
     /// agent omits an explicit total it is derived: input plus output tokens
-    /// for Codex, and the per-model sums when Claude reports model usage.
+    /// for Codex, and the per-model sums when Claude or Grok reports model usage.
     /// </summary>
     public long TotalTokens { get; init; }
 
-    /// <summary>The total Claude run cost in US dollars.</summary>
+    /// <summary>The total agent-reported run cost in US dollars.</summary>
     public double TotalCostUsd { get; init; }
 
-    /// <summary>Claude usage grouped by model identifier.</summary>
+    /// <summary>Agent-reported usage grouped by model identifier.</summary>
     public IReadOnlyDictionary<string, ModelUsage> ModelUsage { get; init; } =
         new Dictionary<string, ModelUsage>();
 }
 
-/// <summary>Claude usage and cost information for one model.</summary>
+/// <summary>Usage and cost information for one model.</summary>
 public sealed record ModelUsage
 {
     /// <summary>The number of input tokens consumed.</summary>
