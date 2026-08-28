@@ -28,12 +28,14 @@ pytestmark = pytest.mark.skipif(
 
 FAKE_CODEX = Path(__file__).parent / "fixtures" / "fake_codex.sh"
 FAKE_CLAUDE = Path(__file__).parent / "fixtures" / "fake_claude.sh"
+FAKE_GROK = Path(__file__).parent / "fixtures" / "fake_grok.sh"
 
 
 @pytest.fixture(autouse=True)
 def _executable_fixture():
     FAKE_CODEX.chmod(FAKE_CODEX.stat().st_mode | stat.S_IEXEC)
     FAKE_CLAUDE.chmod(FAKE_CLAUDE.stat().st_mode | stat.S_IEXEC)
+    FAKE_GROK.chmod(FAKE_GROK.stat().st_mode | stat.S_IEXEC)
 
 
 def _runner_with_capture(tmp_path: Path) -> tuple[Runner, Path, Path]:
@@ -258,6 +260,75 @@ def test_claude_failures_use_claude_error_kind():
     assert "Claude fixture failure" in str(excinfo.value)
     failed = next(event for event in events if event.type == "turn.failed")
     assert failed.usage.total_tokens == 10
+
+
+def test_grok_agent_normalizes_streaming_messages(tmp_path):
+    args_file = tmp_path / "args.txt"
+    stdin_file = tmp_path / "stdin.txt"
+    runner = Runner(
+        agent=codexcw.AGENT_GROK,
+        executable=str(FAKE_GROK),
+        env={
+            "CODEXCW_ARGS_FILE": str(args_file),
+            "CODEXCW_STDIN_FILE": str(stdin_file),
+        },
+    )
+
+    result = runner.run(
+        Request(
+            prompt="inspect",
+            stdin="extra context",
+            allowed_tools=["Bash(git *)"],
+        )
+    )
+
+    assert result.thread_id == "grok-session"
+    assert result.final_message == "Done."
+    assert result.usage.total_tokens == 23
+    assert result.usage.reasoning_output_tokens == 0
+    command = next(
+        event.item
+        for event in result.events
+        if event.type == "item.completed"
+        and event.item is not None
+        and event.item.type == "command_execution"
+    )
+    assert command.command == "printf hi"
+    assert command.aggregated_output == "hi\n"
+    assert command.exit_code == 0
+    assert (
+        stdin_file.read_text()
+        == "inspect\n\n<stdin>\nextra context\n</stdin>\n"
+    )
+
+    args = args_file.read_text().strip().split("\n")
+    for expected in [
+        "streaming-messages-json",
+        "--verbatim",
+        "--prompt-file",
+        "--sandbox",
+        "read-only",
+        "--permission-mode",
+        "dontAsk",
+        "--allow",
+        "Bash(git *)",
+    ]:
+        assert expected in args
+    prompt_index = args.index("--prompt-file")
+    assert not Path(args[prompt_index + 1]).exists()
+
+
+def test_grok_failures_use_grok_error_kind():
+    runner = Runner(
+        agent=codexcw.AGENT_GROK,
+        executable=str(FAKE_GROK),
+        env={"CODEXCW_GROK_ERROR": "1"},
+    )
+
+    with pytest.raises(CodexcwError) as excinfo:
+        runner.run(Request(prompt="fail"))
+    assert excinfo.value.kind == "grok"
+    assert "maximum number of turns" in str(excinfo.value)
 
 
 def test_get_claude_account_usage_reads_report(tmp_path):
