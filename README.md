@@ -3,9 +3,9 @@
 [![CI](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml/badge.svg)](https://github.com/c3-oss/codexcw/actions/workflows/ci.yml)
 [![License: CC0 1.0](https://img.shields.io/badge/license-CC0%201.0-lightgrey.svg)](LICENSE)
 
-Run Codex or Claude Code non-interactively: spawn the selected agent, decode its
-JSONL event stream, and expose each run as streams, callbacks, results, and
-typed errors.
+Run Codex, Claude Code, or Grok Build non-interactively: spawn the selected
+agent, decode its JSONL event stream, and expose each run as streams, callbacks,
+results, and typed errors.
 
 `codexcw` ships as **five idiomatic packages** for the same contract. Three are
 FFI-free native implementations (Go, Rust, .NET); the npm and PyPI packages are
@@ -27,7 +27,7 @@ on its registry once the matching tag has been released — until then, build
 from the repository (for .NET, a project reference to
 `dotnet/Codexcw/Codexcw.csproj`).
 
-Two agents share the same event model:
+Three agents share the same event model:
 
 - **Codex** (the default) spawns `codex exec --json`. Defaults are
   automation-friendly: JSONL streaming, ephemeral sessions, read-only sandbox,
@@ -37,10 +37,16 @@ Two agents share the same event model:
   `claude -p --output-format stream-json` and normalizes its events into the
   same event model, with model selection between the `haiku`, `sonnet`, and
   `opus` aliases and Claude permission modes on the request.
+- **Grok Build** — the `grok` agent — spawns Grok with
+  `--no-auto-update`, `--output-format streaming-messages-json`, a temporary
+  `--prompt-file`, and `--verbatim`. It uses read-only / `dontAsk` automation
+  defaults, normalizes Messages-compatible events and tool calls into the shared
+  model, and keeps Grok sessions persisted for resume.
 
 The selected agent's executable must be on `PATH` and authenticated: `codex`
 new enough to support `codex exec --json`, `claude` new enough to support
-`--output-format stream-json`. See the per-language examples in
+`--output-format stream-json`, and `grok` new enough to support
+`streaming-messages-json`. See the per-language examples in
 [`docs/examples/`](docs/examples/).
 
 Account usage is available through agent-specific helpers. The Codex helpers
@@ -49,7 +55,8 @@ Account usage is available through agent-specific helpers. The Codex helpers
 Claude helpers (`GetClaudeAccountUsage`, `get_claude_account_usage`,
 `getClaudeAccountUsage`) call Claude Code's `/usage` command and return its
 report, parsed percentage windows, and raw JSON. Both accept a custom
-executable, environment, and timeout.
+executable, environment, and timeout. Grok does not expose an account-usage
+helper through this library.
 
 ## Go
 

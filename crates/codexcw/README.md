@@ -1,10 +1,10 @@
 # codexcw
 
-`codexcw` runs Codex or Claude Code non-interactively. It spawns the selected
-agent CLI, decodes the JSONL event stream, and exposes each run as async
-streams, callbacks, results, and typed errors.
+`codexcw` runs Codex, Claude Code, or Grok Build non-interactively. It spawns
+the selected agent CLI, decodes the JSONL event stream, and exposes each run as
+async streams, callbacks, results, and typed errors.
 
-Two agents share the same `Event` model:
+Three agents share the same `Event` model:
 
 - **Codex** (the default) spawns `codex exec --json`. Defaults are
   automation-friendly: JSONL streaming, ephemeral sessions, read-only sandbox,
@@ -14,15 +14,24 @@ Two agents share the same `Event` model:
   `claude -p --output-format stream-json` and normalizes its events into the
   same `Event` model, with model selection via the `haiku`/`sonnet`/`opus`
   aliases (`claude_model`).
+- **Grok Build** — `Runner::builder().agent(Agent::Grok)` — uses
+  `--no-auto-update` with `streaming-messages-json` and normalizes
+  Messages-compatible events and tools into the same model. New runs default
+  to read-only sandboxing and `dontAsk` permissions.
 
 The selected agent's executable must be on `PATH` and authenticated: `codex`
 new enough to support `codex exec --json`, `claude` new enough to support
-`--output-format stream-json`.
+`--output-format stream-json`, and `grok` new enough to support
+`streaming-messages-json`.
 
 Claude permission modes are available through `permission_mode`, including
 `AUTO` and `MANUAL`. Completed Claude runs expose cache-creation tokens, total
 cost, and per-model usage through `RunResult::usage`. Failed Claude results
 surface as `Error::Claude`.
+
+Grok prompts are buffered into a temporary `--prompt-file` that is removed
+after the process exits. Grok sessions are always persisted, and failures
+surface as `Error::Grok`.
 
 ## Usage
 

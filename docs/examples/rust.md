@@ -9,10 +9,11 @@ cargo add tokio --features macros,rt-multi-thread
 cargo add tokio-stream
 ```
 
-Runners drive Codex (the default agent) or Claude Code; the selected agent's
+Runners drive Codex (the default), Claude Code, or Grok Build; the selected agent's
 executable must be on `PATH` and authenticated — `codex` new enough to support
 `codex exec --json`, `claude` new enough to support
-`--output-format stream-json` (see the Claude agent section below). Codex
+`--output-format stream-json`, and `grok` new enough to support
+`streaming-messages-json`. Codex
 defaults are automation-friendly: read-only sandbox, approval `never`,
 ephemeral sessions, color off, git-check skipped.
 
@@ -367,6 +368,54 @@ and `dangerously_bypass_sandbox` (passed as
 The permission-mode constants are `ACCEPT_EDITS`, `AUTO`,
 `BYPASS_PERMISSIONS`, `MANUAL`, `DONT_ASK`, and `PLAN`.
 
+## Grok Build agent
+
+Select Grok Build with `Agent::Grok`. The wrapper invokes `grok` with
+`--no-auto-update`, `--output-format streaming-messages-json`, `--verbatim`,
+and a temporary `--prompt-file` that is removed after the process exits.
+
+```rust
+use codexcw::{Agent, Request, Runner, SandboxMode};
+
+let runner = Runner::builder().agent(Agent::Grok).build();
+let result = runner
+    .run(Request {
+        prompt: "revise este repositório".to_string(),
+        dir: Some("/work/project".to_string()),
+        model: Some("grok-code-fast-1".to_string()),
+        profile: Some("reviewer".to_string()), // passed as --agent
+        sandbox: Some(SandboxMode::WorkspaceWrite),
+        allowed_tools: vec!["Bash(cargo test *)".to_string()],
+        disallowed_tools: vec!["WebSearch".to_string()],
+        output_schema: Some(br#"{"type":"object"}"#.to_vec()),
+        ..Default::default()
+    })
+    .await?;
+
+println!("{}", result.final_message);
+```
+
+New Grok runs default to the `read-only` sandbox and `dontAsk` permission
+mode. `WorkspaceWrite` maps to Grok's `workspace` profile and
+`DangerFullAccess` maps to `off`. `ApprovalPolicy::Never` maps to `dontAsk`;
+the other approval policies map to Grok's `default` mode. An explicit
+`permission_mode` chooses a Grok permission mode directly and is mutually
+exclusive with `approval`. `dangerously_bypass_sandbox` selects
+`--sandbox off` with `bypassPermissions`.
+
+`resume_id` and `resume_last` map to `--resume` and `--continue`. A resume
+request without an explicit `sandbox` omits the flag so Grok restores the
+session's saved sandbox. Grok always persists sessions, so `persistent` does
+not change its invocation. Grok does not expose an account-usage helper.
+
+The prompt and `stdin` bytes are buffered into the temporary prompt file before
+the process starts. Grok's Messages stream reports reasoning text but no
+separate reasoning token count, so `reasoning_output_tokens` is zero.
+`add_dirs`, `images`, `config`, `enable`, `disable`, `strict_config`,
+`ignore_user_config`, `ignore_rules`, `require_git_repo`,
+`output_last_message_path`, `dangerously_bypass_hooks`, and `resume_all` return
+`Error::InvalidRequest` because Grok has no equivalent option.
+
 ## Stdin input
 
 ```rust
@@ -444,6 +493,7 @@ match runner.run(Request::new("...")).await {
     Err(Error::Exit { code, stderr, .. }) => println!("agent exited {code}: {stderr}"),
     Err(Error::Codex { message, .. }) => println!("codex reported: {message}"),
     Err(Error::Claude { message, .. }) => println!("claude reported: {message}"),
+    Err(Error::Grok { message, .. }) => println!("grok reported: {message}"),
     Err(Error::Decode { line, .. }) => println!("bad JSONL on line {line}"),
     Err(Error::PromptRequired) => println!("prompt or stdin is required"),
     Err(other) => println!("error: {other}"),

@@ -13,10 +13,11 @@ To build against the repository directly, reference the project instead:
 dotnet add reference path/to/codexcw/dotnet/Codexcw/Codexcw.csproj
 ```
 
-Runners drive Codex (the default agent) or Claude Code; the selected agent's
+Runners drive Codex (the default), Claude Code, or Grok Build; the selected agent's
 executable must be on `PATH` and authenticated — `codex` new enough to support
 `codex exec --json`, `claude` new enough to support
-`--output-format stream-json` (see the Claude agent section below). Codex
+`--output-format stream-json`, and `grok` new enough to support
+`streaming-messages-json`. Codex
 defaults are automation-friendly: read-only sandbox, approval `never`,
 ephemeral sessions, color off, git-check skipped.
 
@@ -368,6 +369,51 @@ foreach (var window in accountUsage.Windows)
 `ClaudeAccountUsage.Raw` preserves the complete JSON result and `Report`
 preserves Claude Code's human-readable response.
 
+## Grok Build agent
+
+Select Grok Build with `Agent.Grok`. The wrapper invokes `grok` with
+`--no-auto-update`, `--output-format streaming-messages-json`, `--verbatim`,
+and a temporary `--prompt-file` that is removed after the process exits.
+
+```csharp
+var grok = new Runner(new RunnerOptions { Agent = Agent.Grok });
+var result = await grok.RunAsync(new Request
+{
+    Prompt = "revise este repositório",
+    Dir = "/work/project",
+    Model = "grok-code-fast-1",
+    Profile = "reviewer", // passed as --agent
+    Sandbox = SandboxMode.WorkspaceWrite,
+    PermissionMode = PermissionMode.AcceptEdits,
+    AllowedTools = ["Bash(dotnet test *)"],
+    DisallowedTools = ["WebSearch"],
+    OutputSchema = """{"type":"object"}""",
+});
+
+Console.WriteLine(result.FinalMessage);
+```
+
+New Grok runs default to the `ReadOnly` sandbox and `DontAsk` permission
+mode. `WorkspaceWrite` maps to Grok's `workspace` profile and
+`DangerFullAccess` maps to `off`. `ApprovalPolicy.Never` maps to `dontAsk`;
+the other approval policies map to Grok's `default` mode. An explicit
+`PermissionMode` is mutually exclusive with `Approval`.
+`DangerouslyBypassSandbox` selects `--sandbox off` with
+`bypassPermissions`.
+
+`ResumeId` and `ResumeLast` map to `--resume` and `--continue`. A resume
+request without an explicit `Sandbox` omits the flag so Grok restores the
+session's saved sandbox. Grok always persists sessions, so `Persistent` does
+not change its invocation. Grok does not expose an account-usage helper.
+
+`Request.Stdin` is read and folded into the temporary prompt file during
+`Start`, so `Start` can block on a slow input stream. Grok's Messages stream
+reports reasoning text but no separate reasoning token count, so
+`ReasoningOutputTokens` is zero. `AddDirs`, `Images`, `Config`, `Enable`,
+`Disable`, `StrictConfig`, `IgnoreUserConfig`, `IgnoreRules`, `RequireGitRepo`,
+`OutputLastMessagePath`, `DangerouslyBypassHooks`, and `ResumeAll` throw
+`InvalidRequestException` because Grok has no equivalent option.
+
 ## Stdin input
 
 ```csharp
@@ -452,6 +498,10 @@ catch (CodexErrorException ex)
 catch (ClaudeErrorException ex)
 {
     Console.WriteLine($"claude reported an error: {ex.Message}");
+}
+catch (GrokErrorException ex)
+{
+    Console.WriteLine($"grok reported an error: {ex.Message}");
 }
 catch (DecodeException ex)
 {

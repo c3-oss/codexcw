@@ -1,16 +1,17 @@
 ---
 name: codexcw
-description: Run Codex or Claude Code non-interactively from Go, Rust, Node.js, Python, or C# using the codexcw library (a wrapper around `codex exec --json` and `claude -p --output-format stream-json`). Use when building automation that spawns either agent, streams its JSONL events, resumes threads, or controls sandbox/approval/permission policy.
+description: Run Codex, Claude Code, or Grok Build non-interactively from Go, Rust, Node.js, Python, or C# using the codexcw library. Use when building automation that spawns an agent, streams its JSONL events, resumes sessions, or controls sandbox, approval, and permission policy.
 ---
 
 # codexcw
 
-`codexcw` runs Codex or Claude Code non-interactively: it spawns the selected
+`codexcw` runs Codex, Claude Code, or Grok Build non-interactively: it spawns the selected
 agent CLI, decodes the JSONL event stream, and exposes each run as streams,
 callbacks, results, and typed errors. The `codex` agent (the default) wraps
 `codex exec --json`; the `claude` agent wraps
 `claude -p --output-format stream-json`, normalizing Claude Code's events into
-the same event model.
+the same event model; the `grok` agent uses `streaming-messages-json` and the
+same normalized model.
 It ships as five independent, idiomatic implementations of the same contract —
 pick the one matching your host language.
 
@@ -30,7 +31,7 @@ pick the one matching your host language.
 - A **`Request`** carrying the prompt plus optional knobs (sandbox, approval,
   resume, config overrides, output schema, dir/add-dirs, model/profile, stdin).
 - A **typed error** carrying a `kind`/variant (`exit`, `decode`, `codex`,
-  `claude`, `handler`, `cancelled`, `invalidRequest`, `promptRequired`,
+  `claude`, `grok`, `handler`, `cancelled`, `invalidRequest`, `promptRequired`,
   `process`).
 - Agent-specific **account usage helpers**. The Codex helper reads limits,
   credits, and token usage through `codex app-server`; the Claude helper reads
@@ -38,22 +39,24 @@ pick the one matching your host language.
 
 ## Safe defaults
 
-Every runner defaults to: read-only sandbox, approval `never`, ephemeral
-sessions, JSONL streaming, color disabled, git-repo check skipped. The selected
-agent's executable must be on `PATH` and authenticated: `codex` must support
-`codex exec --json`, `claude` must support `--output-format stream-json`.
+Codex defaults to a read-only sandbox, approval `never`, ephemeral sessions,
+color disabled, and a skipped git-repo check. Grok defaults to a read-only
+sandbox and `dontAsk` permissions, and always persists sessions. The selected
+agent's executable must be on `PATH`, authenticated, and support its wrapped
+JSONL mode.
 
 ## Common tasks
 
 - **Resume a thread:** capture `result.thread_id` / `ThreadID` / `threadId` from
   a run, then pass it as `resume_id` on the next request (or use `resume_last`).
-  Resume requests must not set `dir`/`add_dirs`/`profile`.
+  Codex resume requests must not set `dir`/`add_dirs`/`profile`. Grok resume
+  requests omit the sandbox by default so the saved session sandbox is restored.
 - **Loosen the sandbox:** set `sandbox` to `workspace-write` (or
   `danger-full-access`), optionally with `approval: on-request`.
 - **Fast mode (`/fast`):** set the config override `service_tier="priority"`.
-- **⚠️ Bypass entirely:** `dangerously_bypass_sandbox` runs with
-  `--dangerously-bypass-approvals-and-sandbox`. No sandbox, no approvals — only in
-  a disposable, fully-trusted environment.
+- **⚠️ Bypass entirely:** `dangerously_bypass_sandbox` selects the wrapped
+  agent's full bypass mode. Use it only in a disposable, fully trusted
+  environment.
 - **Read account usage:** call the Codex helper (`GetAccountUsage`,
   `get_account_usage`, `getAccountUsage`) or the Claude helper
   (`GetClaudeAccountUsage`, `get_claude_account_usage`,

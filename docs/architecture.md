@@ -24,6 +24,12 @@ implements all of it for the Rust crate and the FFI bindings:
   `file_change`, `mcp__*` to `mcp_tool_call`, WebSearch to `web_search`,
   Task/Agent (subagents) to `collab_tool_call`, TodoWrite to `plan_update`,
   and anything else to `tool_call`.
+- **`grok`** builds Grok's `streaming-messages-json` invocation, buffers the
+  prompt into a temporary file, applies sandbox and permission mappings, and
+  rejects fields without a Grok equivalent.
+- The Messages-compatible decoder used by Claude has a Grok dialect that maps
+  `run_terminal_command`, file writes, web tools, subagents, plans, and MCP
+  calls into the same item kinds while preserving every original JSON line.
 - **`decoder` / `event`** parse each JSONL line into a typed `Event` while keeping
   the original JSON text in `raw` for forward compatibility. Unknown event and
   item types are preserved rather than dropped. The tolerance policy is shared
@@ -31,9 +37,8 @@ implements all of it for the Rust crate and the FFI bindings:
   field present with an incompatible type fails the line with a decode error.
 - **`runner` / `session`** spawn the child process, stream decoded events over a
   bounded channel, capture a stderr tail, and classify the outcome. Error
-  precedence matches the original: a runtime error (decode / handler / cancel)
-  wins over the process-exit classification, which wins over a trailing Codex
-  error event.
+  precedence is runtime error (decode / handler / cancel), terminal agent error
+  event, then process-exit classification.
 - **`group`** runs many requests with a bounded-concurrency semaphore and
   multiplexes their events.
 
@@ -74,7 +79,7 @@ primitives:
 
 ## Testing
 
-A fake `codex` (and `claude`) shell script emits a fixed JSONL stream and
+A fake `codex`, `claude`, or `grok` shell script emits a fixed JSONL stream and
 records its argv/stdin. The Rust integration tests, and the Node, Python, and
 C# suites each keep a verbatim copy of the same fixture scripts, so every
 implementation decodes identical streams without a real Codex install.

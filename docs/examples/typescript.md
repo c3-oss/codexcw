@@ -7,10 +7,11 @@ by the Rust core.
 npm install @c3-oss/codexcw
 ```
 
-Runners drive Codex (the default agent) or Claude Code; the selected agent's
+Runners drive Codex (the default), Claude Code, or Grok Build; the selected agent's
 executable must be on `PATH` and authenticated — `codex` new enough to support
 `codex exec --json`, `claude` new enough to support
-`--output-format stream-json` (see the Claude agent section below). Codex
+`--output-format stream-json`, and `grok` new enough to support
+`streaming-messages-json`. Codex
 defaults are automation-friendly: read-only sandbox, approval `never`,
 ephemeral sessions, color off, git-check skipped.
 
@@ -255,6 +256,51 @@ feature flags) reject with an `invalidRequest` error on a claude runner.
 `PermissionMode` includes all Claude modes: `AcceptEdits`, `Auto`,
 `BypassPermissions`, `Manual`, `DontAsk`, and `Plan`.
 
+## Grok Build agent
+
+Select Grok Build with `agent: 'grok'`. The wrapper invokes `grok` with
+`--no-auto-update`, `--output-format streaming-messages-json`, `--verbatim`,
+and a temporary `--prompt-file` that is removed after the process exits.
+
+```ts
+import { PermissionMode, Runner } from '@c3-oss/codexcw'
+
+const grok = new Runner({ agent: 'grok' })
+const result = await grok.run({
+  prompt: 'revise este repositório',
+  dir: '/work/project',
+  model: 'grok-code-fast-1',
+  profile: 'reviewer', // passed as --agent
+  sandbox: 'workspace-write',
+  permissionMode: PermissionMode.AcceptEdits,
+  allowedTools: ['Bash(npm test *)'],
+  disallowedTools: ['WebSearch'],
+  outputSchema: JSON.stringify({ type: 'object' }),
+})
+
+console.log(result.finalMessage)
+```
+
+New Grok runs default to the `read-only` sandbox and `dontAsk` permission
+mode. `workspace-write` maps to Grok's `workspace` profile and
+`danger-full-access` maps to `off`. Approval `never` maps to `dontAsk`; the
+other approval policies map to Grok's `default` mode. An explicit
+`permissionMode` is mutually exclusive with `approval`.
+`dangerouslyBypassSandbox` selects `--sandbox off` with `bypassPermissions`.
+
+`resumeId` and `resumeLast` map to `--resume` and `--continue`. A resume
+request without an explicit `sandbox` omits the flag so Grok restores the
+session's saved sandbox. Grok always persists sessions, so `persistent` does
+not change its invocation. Grok does not expose an account-usage helper.
+
+The prompt and `stdin` string are buffered into the temporary prompt file
+before launch. Grok's Messages stream reports reasoning text but no separate
+reasoning token count, so `reasoningOutputTokens` is zero. `addDirs`, `images`,
+`config`, `enable`, `disable`, `strictConfig`, `ignoreUserConfig`, `ignoreRules`,
+`requireGitRepo`, `outputLastMessagePath`, `dangerouslyBypassHooks`, and
+`resumeAll` reject with an `invalidRequest` error because Grok has no
+equivalent option.
+
 ## Stdin input
 
 ```ts
@@ -339,6 +385,9 @@ try {
         break
       case 'claude':
         console.log('claude reported:', err.message)
+        break
+      case 'grok':
+        console.log('grok reported:', err.message)
         break
       case 'decode':
         console.log(`bad JSONL on line ${err.line}`)

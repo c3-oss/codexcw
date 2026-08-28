@@ -1,18 +1,23 @@
 # codexcw (Python)
 
-Run Codex or Claude Code non-interactively from Python, backed by a Rust core.
-The Codex agent wraps `codex exec --json`; the Claude agent wraps
-`claude -p --output-format stream-json`. Both expose iterables, callbacks,
-results, typed usage, and typed errors through the same API.
+Run Codex, Claude Code, or Grok Build non-interactively from Python, backed by
+a Rust core. Codex wraps `codex exec --json`; Claude wraps
+`claude -p --output-format stream-json`; Grok uses `--no-auto-update` and
+`streaming-messages-json`. All expose iterables, callbacks, results, typed
+usage, and typed errors through the same API.
 
 The selected agent executable must be on `PATH` and authenticated. Codex must
-support `codex exec --json`; Claude must support `--output-format stream-json`.
-Defaults are automation-friendly: ephemeral sessions and non-interactive
-execution, with Codex using a read-only sandbox and approval `never`.
+support `codex exec --json`; Claude must support `--output-format stream-json`;
+Grok must support `streaming-messages-json`.
+Codex defaults are automation-friendly: ephemeral sessions, non-interactive
+execution, a read-only sandbox, and approval `never`.
 
 The Claude agent is selected with `Runner(agent=codexcw.AGENT_CLAUDE)`; its
 events are normalized into the same event model, with model selection via the
 `haiku`/`sonnet`/`opus` aliases (`CLAUDE_MODEL_*`).
+
+Select Grok with `Runner(agent=codexcw.AGENT_GROK)`. New runs use read-only
+sandboxing and `dontAsk` permissions; Grok sessions are always persisted.
 
 ## Install
 

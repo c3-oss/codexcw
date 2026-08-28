@@ -7,10 +7,11 @@ by the Rust core.
 pip install codexcw
 ```
 
-Runners drive Codex (the default agent) or Claude Code; the selected agent's
+Runners drive Codex (the default), Claude Code, or Grok Build; the selected agent's
 executable must be on `PATH` and authenticated — `codex` new enough to support
 `codex exec --json`, `claude` new enough to support
-`--output-format stream-json` (see the Claude agent section below). Codex
+`--output-format stream-json`, and `grok` new enough to support
+`streaming-messages-json`. Codex
 defaults are automation-friendly: read-only sandbox, approval `never`,
 ephemeral sessions, color off, git-check skipped.
 
@@ -316,6 +317,56 @@ and `dangerously_bypass_sandbox` (passed as
 The exported permission constants cover `acceptEdits`, `auto`,
 `bypassPermissions`, `manual`, `dontAsk`, and `plan`.
 
+## Grok Build agent
+
+Select Grok Build with `AGENT_GROK`. The wrapper invokes `grok` with
+`--no-auto-update`, `--output-format streaming-messages-json`, `--verbatim`,
+and a temporary `--prompt-file` that is removed after the process exits.
+
+```python
+import codexcw
+
+grok = codexcw.Runner(agent=codexcw.AGENT_GROK)
+result = grok.run(
+    codexcw.Request(
+        prompt="revise este repositório",
+        dir="/work/project",
+        model="grok-code-fast-1",
+        profile="reviewer",  # passed as --agent
+        sandbox="workspace-write",
+        permission_mode=codexcw.PERMISSION_ACCEPT_EDITS,
+        allowed_tools=["Bash(pytest *)"],
+        disallowed_tools=["WebSearch"],
+        output_schema='{"type":"object"}',
+    )
+)
+print(result.final_message)
+
+# The asyncio facade accepts the same options.
+async_grok = codexcw.aio.Runner(agent=codexcw.AGENT_GROK)
+```
+
+New Grok runs default to the `read-only` sandbox and `dontAsk` permission
+mode. `workspace-write` maps to Grok's `workspace` profile and
+`danger-full-access` maps to `off`. Approval `never` maps to `dontAsk`; the
+other approval policies map to Grok's `default` mode. An explicit
+`permission_mode` is mutually exclusive with `approval`.
+`dangerously_bypass_sandbox` selects `--sandbox off` with
+`bypassPermissions`.
+
+`resume_id` and `resume_last` map to `--resume` and `--continue`. A resume
+request without an explicit `sandbox` omits the flag so Grok restores the
+session's saved sandbox. Grok always persists sessions, so `persistent` does
+not change its invocation. Grok does not expose an account-usage helper.
+
+The prompt and `stdin` string are buffered into the temporary prompt file
+before launch. Grok's Messages stream reports reasoning text but no separate
+reasoning token count, so `reasoning_output_tokens` is zero. `add_dirs`,
+`images`, `config`, `enable`, `disable`, `strict_config`, `ignore_user_config`,
+`ignore_rules`, `require_git_repo`, `output_last_message_path`,
+`dangerously_bypass_hooks`, and `resume_all` raise a typed `invalidRequest`
+error because Grok has no equivalent option.
+
 ## Stdin input
 
 ```python
@@ -401,6 +452,8 @@ except CodexcwError as err:
         print("codex reported:", err)
     elif err.kind == "claude":
         print("claude reported:", err)
+    elif err.kind == "grok":
+        print("grok reported:", err)
     elif err.kind == "decode":
         print(f"bad JSONL on line {err.line}")
     elif err.kind == "promptRequired":
