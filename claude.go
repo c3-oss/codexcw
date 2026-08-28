@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// PermissionMode controls the permission behavior of a claude agent run.
+// PermissionMode controls Claude or Grok permission behavior.
 type PermissionMode string
 
 const (
 	// PermissionAcceptEdits auto-approves file edits inside the workspace.
 	PermissionAcceptEdits PermissionMode = "acceptEdits"
 
-	// PermissionAuto lets Claude choose when to request permission.
+	// PermissionAuto lets the selected agent choose when to request permission.
 	PermissionAuto PermissionMode = "auto"
 
 	// PermissionBypassPermissions skips all permission checks.
@@ -26,7 +26,7 @@ const (
 	// PermissionManual requires explicit permission for tool use.
 	PermissionManual PermissionMode = "manual"
 
-	// PermissionPlan keeps Claude in read-only planning mode.
+	// PermissionPlan keeps the selected agent in read-only planning mode.
 	PermissionPlan PermissionMode = "plan"
 
 	// PermissionDontAsk denies any action that would prompt for approval.
@@ -131,9 +131,10 @@ func validateClaudeRequest(req Request) error {
 	return nil
 }
 
-// claudeEventDecoder normalizes the claude -p stream-json events into the
-// shared Event model. Raw always keeps the original Claude JSON line.
+// claudeEventDecoder normalizes Messages-compatible streams into the shared
+// Event model. Raw always keeps the original agent JSON line.
 type claudeEventDecoder struct {
+	agent          Agent
 	pending        map[string]Item
 	lastAgentText  string
 	blockSequences map[string]uint64
@@ -141,6 +142,15 @@ type claudeEventDecoder struct {
 
 func newClaudeEventDecoder() *claudeEventDecoder {
 	return &claudeEventDecoder{
+		agent:          AgentClaude,
+		pending:        make(map[string]Item),
+		blockSequences: make(map[string]uint64),
+	}
+}
+
+func newGrokEventDecoder() *claudeEventDecoder {
+	return &claudeEventDecoder{
+		agent:          AgentGrok,
 		pending:        make(map[string]Item),
 		blockSequences: make(map[string]uint64),
 	}
@@ -153,6 +163,7 @@ type claudeWireEvent struct {
 	Message       *claudeWireMessage              `json:"message"`
 	IsError       bool                            `json:"is_error"`
 	Result        string                          `json:"result"`
+	Errors        []string                        `json:"errors"`
 	Usage         claudeWireUsage                 `json:"usage"`
 	TotalCostUSD  float64                         `json:"total_cost_usd"`
 	ModelUsage    map[string]claudeWireModelUsage `json:"modelUsage"`
@@ -258,13 +269,26 @@ func (d *claudeEventDecoder) decodeAssistant(base Event, wire *claudeWireEvent) 
 				Raw:    append(json.RawMessage(nil), rawBlock...),
 				Text:   block.Thinking,
 			}))
-		case "tool_use":
-			item := claudeToolItem(block, rawBlock)
+		case "tool_use", "server_tool_use":
+			item := claudeToolItem(d.agent, block, rawBlock)
 			d.pending[block.ID] = item
 			started := base
 			started.Type = EventItemStarted
 			started.ItemStarted = &ItemEvent{Item: item}
 			events = append(events, started)
+		case "web_search_tool_result":
+			item, ok := d.pending[block.ToolUseID]
+			if !ok {
+				continue
+			}
+			delete(d.pending, block.ToolUseID)
+			item.Raw = append(json.RawMessage(nil), rawBlock...)
+			item.AggregatedOutput = claudeToolResultText(block.Content, d.agent)
+			item.Status = "completed"
+			if block.IsError {
+				item.Status = "failed"
+			}
+			events = append(events, claudeItemCompleted(base, item))
 		}
 	}
 	if len(events) == 0 {
@@ -290,13 +314,13 @@ func (d *claudeEventDecoder) decodeUser(base Event, wire *claudeWireEvent) ([]Ev
 		delete(d.pending, block.ToolUseID)
 
 		item.Raw = append(json.RawMessage(nil), rawBlock...)
-		item.AggregatedOutput = claudeToolResultText(block.Content)
+		item.AggregatedOutput = claudeToolResultText(block.Content, d.agent)
 		item.Status = "completed"
 		if block.IsError {
 			item.Status = "failed"
 		}
 		if item.Type == ItemCommandExecution {
-			item.ExitCode = claudeCommandExitCode(block.Content, wire.ToolUseResult)
+			item.ExitCode = claudeCommandExitCode(block.Content, wire.ToolUseResult, d.agent)
 			if item.ExitCode == nil && !block.IsError {
 				exitCode := 0
 				item.ExitCode = &exitCode
@@ -308,7 +332,7 @@ func (d *claudeEventDecoder) decodeUser(base Event, wire *claudeWireEvent) ([]Ev
 			}
 		}
 		if item.Type == ItemCollabToolCall {
-			if agentID := claudeAgentID(wire.ToolUseResult); agentID != "" {
+			if agentID := claudeAgentID(wire.ToolUseResult, block.Content, d.agent); agentID != "" {
 				item.ReceiverThreadIDs = []string{agentID}
 			}
 		}
@@ -324,8 +348,11 @@ func (d *claudeEventDecoder) decodeResult(base Event, wire *claudeWireEvent) []E
 	usage := claudeResultUsage(wire)
 	if wire.IsError {
 		message := wire.Result
+		if message == "" && len(wire.Errors) > 0 {
+			message = strings.Join(wire.Errors, "; ")
+		}
 		if message == "" {
-			message = "claude run failed"
+			message = string(d.agent) + " run failed"
 		}
 		failed := base
 		failed.Type = EventTurnFailed
@@ -362,7 +389,7 @@ func claudeResultUsage(wire *claudeWireEvent) Usage {
 	}
 
 	// result.usage covers the root agent only; modelUsage and the cost also
-	// cover subagents. The full-run total comes from modelUsage when Claude
+	// cover subagents. The full-run total comes from modelUsage when the agent
 	// reports it.
 	totalTokens := wire.Usage.InputTokens +
 		wire.Usage.CacheCreationInputTokens +
@@ -389,20 +416,31 @@ func claudeResultUsage(wire *claudeWireEvent) Usage {
 	}
 }
 
-func claudeAgentID(toolUseResult json.RawMessage) string {
-	if len(toolUseResult) == 0 {
+func claudeAgentID(toolUseResult, content json.RawMessage, agent Agent) string {
+	raw := toolUseResult
+	if len(raw) == 0 && agent == AgentGrok {
+		raw = grokNestedResult(content)
+	}
+	if len(raw) == 0 {
 		return ""
 	}
 	var wire struct {
-		AgentID string `json:"agentId"`
+		AgentID    string `json:"agentId"`
+		TaskID     string `json:"task_id"`
+		SubagentID string `json:"subagent_id"`
 	}
-	if json.Unmarshal(toolUseResult, &wire) != nil {
+	if json.Unmarshal(raw, &wire) != nil {
 		return ""
 	}
-	return wire.AgentID
+	for _, id := range []string{wire.AgentID, wire.TaskID, wire.SubagentID} {
+		if id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
-func claudeToolItem(block claudeWireBlock, rawBlock json.RawMessage) Item {
+func claudeToolItem(agent Agent, block claudeWireBlock, rawBlock json.RawMessage) Item {
 	item := Item{
 		ID:     block.ID,
 		Status: "in_progress",
@@ -413,34 +451,43 @@ func claudeToolItem(block claudeWireBlock, rawBlock json.RawMessage) Item {
 		Command      string `json:"command"`
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
+		TargetFile   string `json:"target_file"`
+		Path         string `json:"path"`
 	}
 	_ = json.Unmarshal(block.Input, &input)
 
 	switch {
-	case block.Name == "Bash":
+	case block.Name == "Bash" || block.Name == "run_terminal_command":
 		item.Type = ItemCommandExecution
 		item.Command = input.Command
-	case block.Name == "Write" || block.Name == "Edit" || block.Name == "MultiEdit" || block.Name == "NotebookEdit":
+	case block.Name == "Write" || block.Name == "Edit" || block.Name == "MultiEdit" ||
+		block.Name == "NotebookEdit" || block.Name == "search_replace" || block.Name == "write":
 		item.Type = ItemFileChange
 		path := input.FilePath
 		if path == "" {
 			path = input.NotebookPath
 		}
+		if path == "" {
+			path = input.TargetFile
+		}
+		if path == "" {
+			path = input.Path
+		}
 		kind := "update"
-		if block.Name == "Write" {
+		if block.Name == "Write" || block.Name == "write" {
 			kind = "add"
 		}
 		item.Changes = []FileChange{{Path: path, Kind: kind}}
-	case strings.HasPrefix(block.Name, "mcp__"):
+	case strings.HasPrefix(block.Name, "mcp__") || agent == AgentGrok && block.Name == "use_tool":
 		item.Type = ItemMCPToolCall
-	case block.Name == "WebSearch":
+	case block.Name == "WebSearch" || block.Name == "web_search" || block.Name == "web_fetch":
 		item.Type = ItemWebSearch
-	case block.Name == "Task" || block.Name == "Agent":
+	case block.Name == "Task" || block.Name == "Agent" || block.Name == "spawn_subagent":
 		// "Task" is the legacy name of the subagent tool; current Claude
 		// Code CLIs call it "Agent".
 		item.Type = ItemCollabToolCall
 		item.Tool = block.Name
-	case block.Name == "TodoWrite":
+	case block.Name == "TodoWrite" || block.Name == "todo_write":
 		item.Type = ItemPlanUpdate
 	default:
 		item.Type = ItemToolCall
@@ -459,12 +506,26 @@ func claudeContentBlocks(message *claudeWireMessage) []json.RawMessage {
 	return blocks
 }
 
-func claudeToolResultText(raw json.RawMessage) string {
+func claudeToolResultText(raw json.RawMessage, agent Agent) string {
 	if len(raw) == 0 {
 		return ""
 	}
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
+		if agent == AgentGrok {
+			var result struct {
+				Output          []byte `json:"output"`
+				OutputForPrompt string `json:"output_for_prompt"`
+			}
+			if json.Unmarshal([]byte(text), &result) == nil {
+				if len(result.Output) > 0 {
+					return string(result.Output)
+				}
+				if result.OutputForPrompt != "" {
+					return result.OutputForPrompt
+				}
+			}
+		}
 		return text
 	}
 	var blocks []struct {
@@ -503,7 +564,12 @@ func claudeFileChangeKind(raw json.RawMessage) string {
 	}
 }
 
-func claudeCommandExitCode(content, toolUseResult json.RawMessage) *int {
+func claudeCommandExitCode(content, toolUseResult json.RawMessage, agent Agent) *int {
+	if agent == AgentGrok {
+		if nested := grokNestedResult(content); len(nested) > 0 {
+			toolUseResult = nested
+		}
+	}
 	for _, raw := range []json.RawMessage{toolUseResult, content} {
 		if len(raw) == 0 {
 			continue
@@ -523,13 +589,21 @@ func claudeCommandExitCode(content, toolUseResult json.RawMessage) *int {
 
 		var text string
 		if json.Unmarshal(raw, &text) != nil {
-			text = claudeToolResultText(raw)
+			text = claudeToolResultText(raw, agent)
 		}
 		if exitCode := claudeExitCodeFromText(text); exitCode != nil {
 			return exitCode
 		}
 	}
 	return nil
+}
+
+func grokNestedResult(raw json.RawMessage) json.RawMessage {
+	var text string
+	if len(raw) == 0 || json.Unmarshal(raw, &text) != nil {
+		return nil
+	}
+	return json.RawMessage(text)
 }
 
 func claudeExitCodeFromText(text string) *int {

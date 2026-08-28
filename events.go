@@ -56,7 +56,7 @@ const (
 	// ItemPlanUpdate carries a Codex plan update.
 	ItemPlanUpdate ItemType = "plan_update"
 
-	// ItemToolCall carries a generic tool call from the claude agent.
+	// ItemToolCall carries a generic tool call from an agent.
 	ItemToolCall ItemType = "tool_call"
 
 	// ItemCollabToolCall carries a multi-agent collab tool call
@@ -167,18 +167,18 @@ type Usage struct {
 
 	// TotalTokens is the total token count for the full run, subagents
 	// included. When the agent omits an explicit total it is derived: input
-	// plus output tokens for Codex, and the per-model sums when Claude
+	// plus output tokens for Codex, and the per-model sums when Claude or Grok
 	// reports model usage.
 	TotalTokens int64 `json:"total_tokens"`
 
-	// TotalCostUSD is the total Claude run cost in US dollars.
+	// TotalCostUSD is the total agent-reported run cost in US dollars.
 	TotalCostUSD float64 `json:"total_cost_usd"`
 
-	// ModelUsage contains Claude usage grouped by model identifier.
+	// ModelUsage contains agent-reported usage grouped by model identifier.
 	ModelUsage map[string]ModelUsage `json:"model_usage"`
 }
 
-// ModelUsage is Claude usage and cost information for one model.
+// ModelUsage is usage and cost information for one model.
 type ModelUsage struct {
 	// InputTokens is the number of input tokens consumed.
 	InputTokens int64 `json:"input_tokens"`

@@ -101,6 +101,26 @@ type ClaudeError struct {
 	Event Event
 }
 
+// GrokError reports a failed turn event from Grok.
+type GrokError struct {
+	// Event is the Grok error event.
+	Event Event
+}
+
+// Error formats the Grok error event.
+func (e *GrokError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Event.Error != nil && e.Event.Error.Message != "" {
+		return "grok error: " + e.Event.Error.Message
+	}
+	if e.Event.TurnFailed != nil && e.Event.TurnFailed.Error.Message != "" {
+		return "grok turn failed: " + e.Event.TurnFailed.Error.Message
+	}
+	return "grok error event"
+}
+
 // Error formats the Claude error event.
 func (e *ClaudeError) Error() string {
 	if e == nil {
