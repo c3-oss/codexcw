@@ -135,6 +135,33 @@ public sealed class ClaudeErrorException : CodexcwException
     }
 }
 
+/// <summary>Reports a failed turn event from Grok.</summary>
+public sealed class GrokErrorException : CodexcwException
+{
+    /// <summary>Creates the exception for one Grok error event.</summary>
+    public GrokErrorException(Event @event)
+        : base(FormatMessage(@event))
+    {
+        Event = @event;
+    }
+
+    /// <summary>The Grok error event.</summary>
+    public Event Event { get; }
+
+    private static string FormatMessage(Event @event)
+    {
+        if (@event.Error is { Message.Length: > 0 } error)
+        {
+            return "grok error: " + error.Message;
+        }
+        if (@event.TurnFailed is { Error.Message.Length: > 0 } failed)
+        {
+            return "grok turn failed: " + failed.Error.Message;
+        }
+        return "grok error event";
+    }
+}
+
 /// <summary>Wraps an exception thrown by a run event handler.</summary>
 public sealed class HandlerException : CodexcwException
 {

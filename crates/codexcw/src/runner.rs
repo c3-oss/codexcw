@@ -19,6 +19,7 @@ use crate::claude::{prepare_claude, ClaudeDecoder};
 use crate::decoder::decode_event;
 use crate::error::Error;
 use crate::event::{Event, EventPayload, ItemKind, Usage};
+use crate::grok::prepare_grok;
 use crate::request::{ApprovalPolicy, Request, SandboxMode};
 use crate::session::{Completion, RunOutcome, RunResult, Session};
 use crate::tail::TailBuffer;
@@ -37,6 +38,8 @@ pub enum Agent {
     Codex,
     /// `claude -p --output-format stream-json`.
     Claude,
+    /// `grok --prompt-file ... --output-format streaming-messages-json`.
+    Grok,
 }
 
 impl Agent {
@@ -45,6 +48,7 @@ impl Agent {
         match self {
             Agent::Codex => "codex",
             Agent::Claude => "claude",
+            Agent::Grok => "grok",
         }
     }
 }
@@ -59,6 +63,7 @@ impl std::fmt::Display for Agent {
 enum EventDecoder {
     Codex,
     Claude(ClaudeDecoder),
+    Grok(ClaudeDecoder),
 }
 
 impl EventDecoder {
@@ -66,6 +71,7 @@ impl EventDecoder {
         match agent {
             Agent::Codex => EventDecoder::Codex,
             Agent::Claude => EventDecoder::Claude(ClaudeDecoder::default()),
+            Agent::Grok => EventDecoder::Grok(ClaudeDecoder::grok()),
         }
     }
 
@@ -78,7 +84,9 @@ impl EventDecoder {
     ) -> Result<Vec<Event>, String> {
         match self {
             EventDecoder::Codex => decode_event(line, run_id, thread_id, now).map(|e| vec![e]),
-            EventDecoder::Claude(decoder) => decoder.decode(line, run_id, thread_id, now),
+            EventDecoder::Claude(decoder) | EventDecoder::Grok(decoder) => {
+                decoder.decode(line, run_id, thread_id, now)
+            }
         }
     }
 }
@@ -171,10 +179,15 @@ impl Runner {
         self.start_opts(req, RunOptions::default()).await
     }
 
-    /// Launches one `codex exec` process with per-run options.
+    /// Launches one selected-agent process with per-run options.
     pub async fn start_opts(&self, req: Request, opts: RunOptions) -> Result<Session, Error> {
         let prepared = match self.inner.agent {
             Agent::Claude => prepare_claude(&req)?,
+            Agent::Grok => prepare_grok(
+                &req,
+                self.inner.default_sandbox,
+                self.inner.default_approval,
+            )?,
             Agent::Codex => prepare(
                 &req,
                 self.inner.default_sandbox,
@@ -233,7 +246,7 @@ impl Runner {
             run_id: run_id.clone(),
             thread_id: thread_id.clone(),
             scan_max_bytes: self.inner.scan_max_bytes,
-            schema_temp: prepared.schema_temp,
+            temp_files: prepared.temp_files,
             decoder: EventDecoder::for_agent(self.inner.agent),
             agent: self.inner.agent,
         }));
@@ -374,7 +387,7 @@ struct CollectCtx {
     run_id: String,
     thread_id: Arc<Mutex<String>>,
     scan_max_bytes: usize,
-    schema_temp: Option<tempfile::NamedTempFile>,
+    temp_files: Vec<tempfile::NamedTempFile>,
     decoder: EventDecoder,
     agent: Agent,
 }
@@ -413,7 +426,7 @@ async fn collect(ctx: CollectCtx) {
         run_id,
         thread_id,
         scan_max_bytes,
-        schema_temp,
+        temp_files,
         mut decoder,
         agent,
     } = ctx;
@@ -524,7 +537,7 @@ async fn collect(ctx: CollectCtx) {
     let wait_result = child.wait().await;
     let _ = stderr_task.await;
     let stderr = tail.snapshot();
-    drop(schema_temp);
+    drop(temp_files);
     let finished_at = SystemTime::now();
 
     let report = RunResult {
@@ -573,6 +586,7 @@ fn classify_agent_event(agent: Agent, last_event: Option<&Event>) -> Option<Erro
         EventPayload::Error(_) | EventPayload::TurnFailed { .. } => Some(match agent {
             Agent::Codex => Error::codex_from_event(event),
             Agent::Claude => Error::claude_from_event(event),
+            Agent::Grok => Error::grok_from_event(event),
         }),
         _ => None,
     }

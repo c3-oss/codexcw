@@ -101,9 +101,12 @@ public sealed class Runner
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var prepared = _agent == Agent.Claude
-            ? ClaudeArgs.Prepare(request)
-            : CodexArgs.Prepare(request, _defaultSandbox, _defaultApproval);
+        var prepared = _agent switch
+        {
+            Agent.Claude => ClaudeArgs.Prepare(request),
+            Agent.Grok => GrokArgs.Prepare(request, _defaultSandbox, _defaultApproval),
+            _ => CodexArgs.Prepare(request, _defaultSandbox, _defaultApproval),
+        };
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var session = new Session(NewRunId(), cts, _eventBuffer);
@@ -115,16 +118,18 @@ public sealed class Runner
         }
         catch
         {
-            DeleteSchemaTemp(prepared.SchemaTempPath);
+            DeleteTempFiles(prepared);
             cts.Dispose();
             throw;
         }
 
         session.SetKillRegistration(cts.Token.Register(() => Session.KillProcessTree(process)));
 
-        var stdinTask = WriteStdinAsync(process, request, session.Token);
+        var stdinTask = prepared.WritePrompt
+            ? WriteStdinAsync(process, request, session.Token)
+            : CloseStdin(process);
         session.StartForwarding();
-        _ = CollectAsync(session, process, prepared.SchemaTempPath, options?.Handler, stdinTask);
+        _ = CollectAsync(session, process, prepared, options?.Handler, stdinTask);
 
         return session;
     }
@@ -347,10 +352,22 @@ public sealed class Runner
         }
     }
 
+    private static Task<Exception?> CloseStdin(Process process)
+    {
+        try
+        {
+            process.StandardInput.Close();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+        }
+        return Task.FromResult<Exception?>(null);
+    }
+
     private async Task CollectAsync(
         Session session,
         Process process,
-        string? schemaTempPath,
+        PreparedRun prepared,
         Func<Event, CancellationToken, ValueTask>? handler,
         Task<Exception?> stdinTask)
     {
@@ -519,7 +536,7 @@ public sealed class Runner
         }
         finally
         {
-            DeleteSchemaTemp(schemaTempPath);
+            DeleteTempFiles(prepared);
             session.InternalWriter.TryComplete();
             session.ReleaseKillRegistration();
             process.Dispose();
@@ -543,9 +560,12 @@ public sealed class Runner
         {
             return null;
         }
-        return _agent == Agent.Claude
-            ? new ClaudeErrorException(lastEvent)
-            : new CodexErrorException(lastEvent);
+        return _agent switch
+        {
+            Agent.Claude => new ClaudeErrorException(lastEvent),
+            Agent.Grok => new GrokErrorException(lastEvent),
+            _ => new CodexErrorException(lastEvent),
+        };
     }
 
     private static Exception? ClassifyProcessExit(
@@ -585,21 +605,28 @@ public sealed class Runner
         }
     }
 
-    private IEventDecoder NewDecoder() =>
-        _agent == Agent.Claude ? new ClaudeDecoder() : new CodexDecoder();
-
-    private static void DeleteSchemaTemp(string? path)
+    private IEventDecoder NewDecoder() => _agent switch
     {
-        if (path is null)
+        Agent.Claude => new ClaudeDecoder(),
+        Agent.Grok => new ClaudeDecoder(Agent.Grok),
+        _ => new CodexDecoder(),
+    };
+
+    private static void DeleteTempFiles(PreparedRun prepared)
+    {
+        foreach (var path in new[] { prepared.SchemaTempPath, prepared.PromptTempPath })
         {
-            return;
-        }
-        try
-        {
-            File.Delete(path);
-        }
-        catch (IOException)
-        {
+            if (path is null)
+            {
+                continue;
+            }
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+            }
         }
     }
 

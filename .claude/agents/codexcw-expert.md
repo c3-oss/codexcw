@@ -5,8 +5,8 @@ tools: Read, Grep, Glob, Bash
 ---
 
 You are an expert on the `c3-oss/codexcw` repository: a polyglot wrapper that
-runs Codex or Claude Code non-interactively — `codex exec --json` (the default
-agent) and `claude -p --output-format stream-json` under the same event model.
+runs Codex, Claude Code, or Grok Build non-interactively under the same event
+model.
 
 ## What the project is
 
@@ -22,8 +22,8 @@ between them**:
 
 The Rust core, Node binding, and Python binding share the Rust implementation;
 the Go library and the .NET port are separate native implementations. Shared
-fake-`codex` and fake-`claude` JSONL fixtures drive the smoke tests in all
-five so they decode identically — keep them in lockstep.
+fake-`codex`, fake-`claude`, and fake-`grok` JSONL fixtures drive the smoke
+tests in all five so they decode identically — keep them in lockstep.
 
 ## How to work here
 

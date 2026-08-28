@@ -6,10 +6,11 @@ The Go library lives at the module root: `github.com/c3-oss/codexcw`.
 go get github.com/c3-oss/codexcw
 ```
 
-Runners drive Codex (the default agent) or Claude Code; the selected agent's
+Runners drive Codex (the default), Claude Code, or Grok Build; the selected agent's
 executable must be on `PATH` and authenticated — `codex` new enough to support
 `codex exec --json`, `claude` new enough to support
-`--output-format stream-json` (see the Claude agent section below). Codex
+`--output-format stream-json`, and `grok` new enough to support
+`streaming-messages-json`. Codex
 defaults are automation-friendly: read-only sandbox, approval `never`,
 ephemeral sessions, color off, git-check skipped.
 
@@ -353,6 +354,57 @@ for _, window := range accountUsage.Windows {
 `ClaudeAccountUsage.Raw` preserves the complete JSON result and `Report`
 preserves Claude Code's human-readable response.
 
+## Grok Build agent
+
+Select Grok Build with `AgentGrok`. The wrapper invokes `grok` with
+`--no-auto-update`, `--output-format streaming-messages-json`, `--verbatim`,
+and a temporary `--prompt-file`. The prompt file is removed after the process
+exits.
+
+```go
+runner := codexcw.New(codexcw.WithAgent(codexcw.AgentGrok))
+
+result, err := runner.Run(ctx, codexcw.Request{
+	Prompt:          "revise este repositório",
+	Dir:             "/work/project",
+	Model:           "grok-code-fast-1",
+	Profile:         "reviewer", // passed as --agent
+	Sandbox:         codexcw.SandboxWorkspaceWrite,
+	AllowedTools:    []string{"Bash(go test *)"},
+	DisallowedTools: []string{"WebSearch"},
+	OutputSchema:    []byte(`{"type":"object"}`),
+})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(result.FinalMessage)
+```
+
+New Grok runs default to the `read-only` sandbox and `dontAsk` permission
+mode. `SandboxWorkspaceWrite` maps to Grok's `workspace` profile and
+`SandboxDangerFullAccess` maps to `off`. `ApprovalNever` maps to `dontAsk`;
+`ApprovalUntrusted` and `ApprovalOnRequest` map to Grok's `default` mode.
+Set `PermissionMode` to choose a Grok permission mode directly; it is mutually
+exclusive with `Approval`. `DangerouslyBypassSandbox` selects `--sandbox off`
+with `bypassPermissions`.
+
+`ResumeID` and `ResumeLast` map to `--resume` and `--continue`. A resume
+request without an explicit `Sandbox` omits the flag so Grok restores the
+session's saved sandbox. Grok always persists sessions, so `Persistent` does
+not change its invocation. Grok does not expose an account-usage helper.
+
+`Stdin` is folded into the prompt before launch. Reading it and writing the
+temporary prompt file happens during `Start`, so `Start` can block on a slow
+input reader. Grok's Messages stream reports reasoning text but no separate
+reasoning token count, so `ReasoningOutputTokens` is zero.
+
+Grok supports `Dir`, `Model`, `Profile`, sandbox/approval/permission controls,
+tool filters, output schemas, resume, environment variables, and the full
+bypass flag. `AddDirs`, `Images`, `Config`, `Enable`, `Disable`, `StrictConfig`,
+`IgnoreUserConfig`, `IgnoreRules`, `RequireGitRepo`,
+`OutputLastMessagePath`, `DangerouslyBypassHooks`, and `ResumeAll` return
+`ErrInvalidRequest` because Grok has no equivalent option.
+
 ## Stdin input
 
 ```go
@@ -419,6 +471,7 @@ if err != nil {
 	var exitErr *codexcw.ExitError
 	var codexErr *codexcw.CodexError
 	var claudeErr *codexcw.ClaudeError
+	var grokErr *codexcw.GrokError
 	var decodeErr *codexcw.DecodeError
 	switch {
 	case errors.As(err, &exitErr):
@@ -427,6 +480,8 @@ if err != nil {
 		fmt.Println("codex reported an error:", codexErr.Error())
 	case errors.As(err, &claudeErr):
 		fmt.Println("claude reported an error:", claudeErr.Error())
+	case errors.As(err, &grokErr):
+		fmt.Println("grok reported an error:", grokErr.Error())
 	case errors.As(err, &decodeErr):
 		fmt.Printf("bad JSONL on line %d\n", decodeErr.Line)
 	case errors.Is(err, codexcw.ErrPromptRequired):

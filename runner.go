@@ -32,6 +32,9 @@ const (
 
 	// AgentClaude wraps claude -p --output-format stream-json.
 	AgentClaude Agent = "claude"
+
+	// AgentGrok wraps grok --output-format streaming-messages-json.
+	AgentGrok Agent = "grok"
 )
 
 // Runner starts agent CLI processes and decodes their JSONL event streams.
@@ -332,10 +335,14 @@ func (codexEventDecoder) decode(line []byte, runID, threadID string, now time.Ti
 }
 
 func (r *Runner) newEventDecoder() eventDecoder {
-	if r.agent == AgentClaude {
+	switch r.agent {
+	case AgentClaude:
 		return newClaudeEventDecoder()
+	case AgentGrok:
+		return newGrokEventDecoder()
+	default:
+		return codexEventDecoder{}
 	}
-	return codexEventDecoder{}
 }
 
 // Run starts one process, drains its event stream, and waits for completion.
@@ -493,10 +500,14 @@ func classifyAgentEvent(agent Agent, lastEvent *Event) error {
 		return nil
 	}
 	if lastEvent.Error != nil || lastEvent.TurnFailed != nil {
-		if agent == AgentClaude {
+		switch agent {
+		case AgentClaude:
 			return &ClaudeError{Event: *lastEvent}
+		case AgentGrok:
+			return &GrokError{Event: *lastEvent}
+		default:
+			return &CodexError{Event: *lastEvent}
 		}
-		return &CodexError{Event: *lastEvent}
 	}
 	return nil
 }
@@ -509,6 +520,8 @@ func (r *Runner) prepare(req Request) (_ []string, _ io.Reader, cleanup func(), 
 	switch r.agent {
 	case AgentClaude:
 		return r.prepareClaude(req)
+	case AgentGrok:
+		return r.prepareGrok(req)
 	case AgentCodex:
 	default:
 		return nil, nil, nil, fmt.Errorf("%w: unknown agent: %s", ErrInvalidRequest, r.agent)

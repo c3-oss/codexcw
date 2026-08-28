@@ -54,6 +54,15 @@ pub enum Error {
         event: Box<Event>,
     },
 
+    /// Grok reported a failed result.
+    #[error("{message}")]
+    Grok {
+        /// Formatted Grok error message.
+        message: String,
+        /// The Grok error event.
+        event: Box<Event>,
+    },
+
     /// An event handler returned an error, cancelling the run.
     #[error("agent event handler failed: {0}")]
     Handler(String),
@@ -85,6 +94,13 @@ impl Error {
             event: Box::new(event.clone()),
         }
     }
+
+    pub(crate) fn grok_from_event(event: &Event) -> Self {
+        Error::Grok {
+            message: grok_message(event),
+            event: Box::new(event.clone()),
+        }
+    }
 }
 
 fn codex_message(event: &Event) -> String {
@@ -108,6 +124,18 @@ fn claude_message(event: &Event) -> String {
             format!("claude turn failed: {}", error.message)
         }
         _ => "claude error event".to_string(),
+    }
+}
+
+fn grok_message(event: &Event) -> String {
+    match &event.payload {
+        EventPayload::Error(err) if !err.message.is_empty() => {
+            format!("grok error: {}", err.message)
+        }
+        EventPayload::TurnFailed { error, .. } if !error.message.is_empty() => {
+            format!("grok turn failed: {}", error.message)
+        }
+        _ => "grok error event".to_string(),
     }
 }
 

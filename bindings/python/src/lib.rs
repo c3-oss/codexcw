@@ -572,6 +572,7 @@ fn parse_agent(value: &str) -> Result<codexcw::Agent, PyError> {
     match value {
         "codex" => Ok(codexcw::Agent::Codex),
         "claude" => Ok(codexcw::Agent::Claude),
+        "grok" => Ok(codexcw::Agent::Grok),
         other => Err(invalid_request(format!("unknown agent: {other}"))),
     }
 }
@@ -712,6 +713,13 @@ fn to_py_error(error: &codexcw::Error) -> PyError {
         },
         Claude { .. } => PyError {
             kind: "claude".to_string(),
+            message: error.to_string(),
+            code: None,
+            stderr: None,
+            line: None,
+        },
+        Grok { .. } => PyError {
+            kind: "grok".to_string(),
             message: error.to_string(),
             code: None,
             stderr: None,

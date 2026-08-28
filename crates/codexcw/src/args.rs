@@ -7,14 +7,13 @@ use tempfile::NamedTempFile;
 use crate::error::Error;
 use crate::request::{ApprovalPolicy, Request, SandboxMode};
 
-/// A prepared command: argv, stdin bytes, and the temporary schema file (if any).
+/// A prepared command: argv, stdin bytes, and temporary files kept for the run.
 pub(crate) struct Prepared {
     pub args: Vec<String>,
     pub stdin: Vec<u8>,
-    /// Kept alive so the inline output-schema file exists for the run, then
-    /// deleted on drop.
-    pub schema_temp: Option<NamedTempFile>,
-    /// Working directory for the child process (claude agent only; codex uses `-C`).
+    /// Kept alive until the child process exits, then deleted on drop.
+    pub temp_files: Vec<NamedTempFile>,
+    /// Working directory for the child process (Claude only; other agents use flags).
     pub current_dir: Option<String>,
 }
 
@@ -26,7 +25,7 @@ pub(crate) fn prepare(
 ) -> Result<Prepared, Error> {
     validate_request(req)?;
 
-    let mut schema_temp = None;
+    let mut temp_files = Vec::new();
     let mut schema_path = req.output_schema_path.clone().unwrap_or_default();
     if let Some(bytes) = &req.output_schema {
         if !bytes.is_empty() {
@@ -40,7 +39,7 @@ pub(crate) fn prepare(
             file.flush()
                 .map_err(|err| Error::Process(err.to_string()))?;
             schema_path = file.path().to_string_lossy().into_owned();
-            schema_temp = Some(file);
+            temp_files.push(file);
         }
     }
 
@@ -73,7 +72,7 @@ pub(crate) fn prepare(
     Ok(Prepared {
         args,
         stdin: prompt_bytes(req),
-        schema_temp,
+        temp_files,
         current_dir: None,
     })
 }

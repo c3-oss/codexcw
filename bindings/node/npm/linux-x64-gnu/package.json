@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/codexcw-linux-x64-gnu",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "cpu": [
     "x64"
   ],
@@ -8,7 +8,7 @@
   "files": [
     "codexcw.linux-x64-gnu.node"
   ],
-  "description": "Run Codex or Claude Code non-interactively from Node.js, backed by a Rust core.",
+  "description": "Run Codex, Claude Code, or Grok Build non-interactively from Node.js, backed by a Rust core.",
   "keywords": [
     "codex",
     "automation",

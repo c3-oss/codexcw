@@ -1,13 +1,15 @@
 """Run agent CLIs non-interactively from Python, backed by a Rust core.
 
-``codexcw`` runs Codex or Claude Code non-interactively: it spawns the
-selected agent CLI, decodes the JSONL event stream, and exposes each run as
+``codexcw`` runs Codex, Claude Code, or Grok Build non-interactively: it
+spawns the selected agent CLI, decodes the JSONL event stream, and exposes each run as
 iterables, callbacks, results, and typed errors. The Codex agent (the default)
 wraps ``codex exec --json`` with automation-friendly defaults (read-only
 sandbox, approval ``never``, ephemeral sessions, color disabled, git check
 skipped); ``Runner(agent=AGENT_CLAUDE)`` wraps Claude Code
 (``claude -p --output-format stream-json``), normalizing its events into the
 same event model.
+``Runner(agent=AGENT_GROK)`` wraps Grok Build with
+``streaming-messages-json`` and the same normalized event model.
 
 The synchronous API lives here; :mod:`codexcw.aio` mirrors it with ``async``.
 """
@@ -41,6 +43,7 @@ from ._codexcw import PyUsage as Usage
 __all__ = [
     "AGENT_CLAUDE",
     "AGENT_CODEX",
+    "AGENT_GROK",
     "CLAUDE_MODEL_HAIKU",
     "CLAUDE_MODEL_OPUS",
     "CLAUDE_MODEL_SONNET",
@@ -96,6 +99,7 @@ PermissionMode = str
 
 AGENT_CODEX = "codex"
 AGENT_CLAUDE = "claude"
+AGENT_GROK = "grok"
 
 # Model aliases accepted by the claude agent's ``Request.model``.
 CLAUDE_MODEL_HAIKU = "haiku"
@@ -115,8 +119,8 @@ class CodexcwError(Exception):
     """A typed agent run error.
 
     The ``kind`` attribute is one of ``promptRequired``, ``invalidRequest``,
-    ``exit``, ``decode``, ``codex``, ``claude``, ``handler``, ``cancelled``,
-    ``process``.
+    ``exit``, ``decode``, ``codex``, ``claude``, ``grok``, ``handler``,
+    ``cancelled``, ``process``.
     """
 
     def __init__(self, info: "_codexcw.PyError") -> None:
@@ -305,7 +309,7 @@ class Runner:
         default_sandbox: Optional[SandboxMode] = None,
         default_approval: Optional[ApprovalPolicy] = None,
     ) -> None:
-        if agent is not None and agent not in (AGENT_CODEX, AGENT_CLAUDE):
+        if agent is not None and agent not in (AGENT_CODEX, AGENT_CLAUDE, AGENT_GROK):
             raise CodexcwError(
                 SimpleNamespace(
                     kind="invalidRequest",

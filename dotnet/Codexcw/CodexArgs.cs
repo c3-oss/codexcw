@@ -5,7 +5,9 @@ namespace C3OSS.Codexcw;
 internal sealed record PreparedRun(
     IReadOnlyList<string> Args,
     string? WorkingDirectory,
-    string? SchemaTempPath);
+    string? SchemaTempPath,
+    string? PromptTempPath = null,
+    bool WritePrompt = true);
 
 internal static class CodexArgs
 {

@@ -44,7 +44,7 @@ on each PR. (Dependabot `(deps)` bumps are exempt from the subject-case rule.)
 - **Rust** — `rustfmt` + `clippy -D warnings`; full doc coverage on the core crate.
 - **C#** — `dotnet format` + analyzers with warnings-as-errors; XML docs on
   public members.
-- Process behavior is tested against fake `codex` and `claude` executables; the
+- Process behavior is tested against fake `codex`, `claude`, and `grok` executables; the
   same JSONL fixtures drive the Go, Rust, Node, Python, and C# smoke tests. Keep
   the five in lockstep.
 - Comments explain *why*, not *what*.

@@ -100,7 +100,12 @@ class Group {
 /** Starts selected-agent processes with safe automation defaults. */
 class Runner {
   constructor(options) {
-    if (options?.agent != null && options.agent !== 'codex' && options.agent !== 'claude') {
+    if (
+      options?.agent != null &&
+      options.agent !== 'codex' &&
+      options.agent !== 'claude' &&
+      options.agent !== 'grok'
+    ) {
       throw new CodexcwError({
         kind: 'invalidRequest',
         message: `unknown agent: ${options.agent}`,

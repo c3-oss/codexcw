@@ -1,8 +1,9 @@
 # `@c3-oss/codexcw`
 
-Run Codex or Claude Code non-interactively from Node.js. The Codex agent wraps
-`codex exec --json`; the Claude agent wraps
-`claude -p --output-format stream-json`. Both expose results, live event
+Run Codex, Claude Code, or Grok Build non-interactively from Node.js. The Codex
+agent wraps `codex exec --json`; Claude wraps
+`claude -p --output-format stream-json`; Grok uses `--no-auto-update` and
+`streaming-messages-json`. All expose results, live event
 streams, callbacks, typed usage, and typed errors through the same API. A
 native addon backed by a Rust core (napi-rs) provides prebuilt binaries for
 macOS, Linux (gnu + musl), and Windows.
@@ -14,11 +15,15 @@ npm install @c3-oss/codexcw
 ```
 
 The selected agent executable must be on `PATH` and authenticated. Codex must
-support `codex exec --json`; Claude must support `--output-format stream-json`.
+support `codex exec --json`; Claude must support `--output-format stream-json`;
+Grok must support `streaming-messages-json`.
 
 The Claude agent is selected with `new Runner({ agent: 'claude' })`; its
 events are normalized into the same event model, with model selection via the
 `haiku`/`sonnet`/`opus` aliases (`ClaudeModel`).
+
+Select Grok with `new Runner({ agent: 'grok' })`. New runs use read-only
+sandboxing and `dontAsk` permissions; Grok sessions are always persisted.
 
 ## Usage
 

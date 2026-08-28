@@ -2,21 +2,21 @@ package codexcw
 
 import "io"
 
-// SandboxMode controls the sandbox policy passed to codex exec.
+// SandboxMode controls the Codex sandbox or mapped Grok sandbox profile.
 type SandboxMode string
 
 const (
-	// SandboxReadOnly lets Codex inspect files without write access.
+	// SandboxReadOnly lets the selected agent inspect files without write access.
 	SandboxReadOnly SandboxMode = "read-only"
 
-	// SandboxWorkspaceWrite lets Codex write inside the configured workspace.
+	// SandboxWorkspaceWrite lets the selected agent write inside the workspace.
 	SandboxWorkspaceWrite SandboxMode = "workspace-write"
 
-	// SandboxDangerFullAccess removes Codex sandbox filesystem restrictions.
+	// SandboxDangerFullAccess removes agent sandbox filesystem restrictions.
 	SandboxDangerFullAccess SandboxMode = "danger-full-access"
 )
 
-// ApprovalPolicy controls Codex approval behavior through config overrides.
+// ApprovalPolicy controls Codex approvals or mapped Grok permissions.
 type ApprovalPolicy string
 
 const (
@@ -56,7 +56,7 @@ type Request struct {
 	// when Prompt is set.
 	Stdin io.Reader
 
-	// Dir is passed to codex exec as --cd.
+	// Dir is the selected agent's working directory.
 	Dir string
 
 	// AddDirs grants the selected agent access to additional directories.
@@ -68,23 +68,22 @@ type Request struct {
 	// Model overrides the selected agent's model for this run.
 	Model string
 
-	// Profile selects a Codex config profile.
+	// Profile selects a Codex config profile or Grok agent.
 	Profile string
 
-	// Sandbox controls the Codex sandbox policy (codex agent only).
+	// Sandbox controls the Codex or Grok sandbox policy.
 	Sandbox SandboxMode
 
-	// Approval controls the Codex approval policy through -c (codex agent only).
+	// Approval controls Codex or Grok approval behavior.
 	Approval ApprovalPolicy
 
-	// PermissionMode controls the Claude permission mode (claude agent only).
+	// PermissionMode controls the Claude or Grok permission mode.
 	PermissionMode PermissionMode
 
-	// AllowedTools lists tool patterns Claude may use without prompting
-	// (claude agent only).
+	// AllowedTools lists tool patterns Claude or Grok may use without prompting.
 	AllowedTools []string
 
-	// DisallowedTools lists tool patterns denied to Claude (claude agent only).
+	// DisallowedTools lists tool patterns denied to Claude or Grok.
 	DisallowedTools []string
 
 	// Config contains raw Codex -c config overrides.
@@ -99,7 +98,7 @@ type Request struct {
 	// StrictConfig makes Codex reject unrecognized config fields.
 	StrictConfig bool
 
-	// Persistent keeps the selected agent's session data on disk.
+	// Persistent keeps session data on disk. Grok sessions are always persisted.
 	Persistent bool
 
 	// IgnoreUserConfig skips CODEX_HOME/config.toml.
@@ -114,13 +113,13 @@ type Request struct {
 	// OutputSchemaPath points to a JSON Schema file for the final response.
 	OutputSchemaPath string
 
-	// OutputSchema is written to a temporary JSON Schema file for the run.
+	// OutputSchema contains inline JSON Schema text for the final response.
 	OutputSchema []byte
 
 	// OutputLastMessagePath asks Codex to write the final message to a file.
 	OutputLastMessagePath string
 
-	// DangerouslyBypassSandbox passes Codex's full bypass flag.
+	// DangerouslyBypassSandbox passes the selected agent's full bypass flag.
 	DangerouslyBypassSandbox bool
 
 	// DangerouslyBypassHooks runs enabled hooks without persisted trust.

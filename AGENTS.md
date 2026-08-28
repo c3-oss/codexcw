@@ -6,9 +6,9 @@ Read this end-to-end before proposing substantial changes.
 ## Project shape
 
 A polyglot monorepo: **five independent, idiomatic implementations** of the same
-agent CLI wrapper — `codex exec --json` by default, with a selectable `claude`
-agent that wraps `claude -p --output-format stream-json` and normalizes its
-events into the shared event model. There is **no FFI between the Go and .NET
+agent CLI wrapper — `codex exec --json` by default, with selectable `claude`
+and `grok` agents that normalize their streaming JSON into the shared event
+model. There is **no FFI between the Go and .NET
 ports and the Rust side** — each implementation is native to its ecosystem; they
 share a repo so the spec and test fixtures stay a single source of truth.
 
@@ -62,7 +62,7 @@ are **language-namespaced**:
 - **C#**: `dotnet format` + built-in analyzers with warnings-as-errors; XML doc
   comments are required on public members (`GenerateDocumentationFile`).
 - Library code preserves the raw agent JSON (`Raw`/`raw`) when adding typed helpers.
-- Process behavior is tested against **fake `codex` and `claude` executables**;
+- Process behavior is tested against fake **`codex`, `claude`, and `grok` executables**;
   the same JSONL fixtures drive the Go, Rust, Node, Python, and C# smoke tests
   so all five decode identically. This shared spec/fixtures is the reason the
   implementations live together — keep them in lockstep.
