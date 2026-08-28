@@ -1,15 +1,15 @@
 // Public TypeScript API for @c3-oss/codexcw.
 
 /** The CLI wrapped by a {@link Runner}. */
-export type Agent = 'codex' | 'claude'
+export type Agent = 'codex' | 'claude' | 'grok'
 
-/** Sandbox policy passed to `codex exec` (codex agent only). */
+/** Sandbox policy passed to Codex or Grok. */
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
-/** Approval policy passed to Codex (codex agent only). */
+/** Approval policy mapped to Codex or Grok permissions. */
 export type ApprovalPolicy = 'untrusted' | 'on-request' | 'never'
 
-/** Permission mode passed to Claude (claude agent only). */
+/** Permission mode passed to Claude or Grok. */
 export type PermissionModeValue =
   | 'acceptEdits'
   | 'auto'
@@ -231,11 +231,11 @@ export interface Request {
   profile?: string
   sandbox?: SandboxMode
   approval?: ApprovalPolicy
-  /** Claude permission mode (claude agent only). */
+  /** Claude or Grok permission mode. */
   permissionMode?: PermissionModeValue
-  /** Tool patterns Claude may use without prompting (claude agent only). */
+  /** Tool patterns Claude or Grok may use without prompting. */
   allowedTools?: string[]
-  /** Tool patterns denied to Claude (claude agent only). */
+  /** Tool patterns denied to Claude or Grok. */
   disallowedTools?: string[]
   config?: ConfigOverride[]
   enable?: string[]
@@ -298,6 +298,7 @@ export type ErrorKind =
   | 'decode'
   | 'codex'
   | 'claude'
+  | 'grok'
   | 'handler'
   | 'cancelled'
   | 'process'

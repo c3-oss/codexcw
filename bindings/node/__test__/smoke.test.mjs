@@ -2,7 +2,13 @@
 // without a real Codex install. Unix-only (the fixture is a shell script).
 
 import assert from 'node:assert/strict'
-import { mkdtempSync, chmodSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  chmodSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,8 +27,10 @@ import {
 const here = dirname(fileURLToPath(import.meta.url))
 const fakeCodex = join(here, 'fixtures', 'fake-codex.sh')
 const fakeClaude = join(here, 'fixtures', 'fake-claude.sh')
+const fakeGrok = join(here, 'fixtures', 'fake-grok.sh')
 chmodSync(fakeCodex, 0o755)
 chmodSync(fakeClaude, 0o755)
+chmodSync(fakeGrok, 0o755)
 
 function runnerWithCapture() {
   const dir = mkdtempSync(join(tmpdir(), 'codexcw-'))
@@ -247,6 +255,72 @@ test('claude failures use the claude error kind', async () => {
   })
   const failed = events.find((event) => event.type === 'turn.failed')
   assert.equal(failed.usage.totalTokens, 10)
+})
+
+test('grok agent normalizes streaming-messages-json events', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'codexcw-grok-'))
+  const argsFile = join(dir, 'args.txt')
+  const stdinFile = join(dir, 'stdin.txt')
+  const runner = new Runner({
+    agent: 'grok',
+    executable: fakeGrok,
+    env: { CODEXCW_ARGS_FILE: argsFile, CODEXCW_STDIN_FILE: stdinFile },
+  })
+
+  const result = await runner.run({
+    prompt: 'inspect',
+    stdin: 'extra context',
+    allowedTools: ['Bash(git *)'],
+  })
+
+  assert.equal(result.threadId, 'grok-session')
+  assert.equal(result.finalMessage, 'Done.')
+  assert.equal(result.usage.totalTokens, 23)
+  assert.equal(result.usage.reasoningOutputTokens, 0)
+  const command = result.events.find(
+    (event) =>
+      event.item?.type === 'command_execution' &&
+      event.type === 'item.completed',
+  ).item
+  assert.equal(command.command, 'printf hi')
+  assert.equal(command.aggregatedOutput, 'hi\n')
+  assert.equal(command.exitCode, 0)
+  assert.equal(
+    readFileSync(stdinFile, 'utf8'),
+    'inspect\n\n<stdin>\nextra context\n</stdin>\n',
+  )
+
+  const args = readFileSync(argsFile, 'utf8').trim().split('\n')
+  for (const expected of [
+    'streaming-messages-json',
+    '--verbatim',
+    '--prompt-file',
+    '--sandbox',
+    'read-only',
+    '--permission-mode',
+    'dontAsk',
+    '--allow',
+    'Bash(git *)',
+  ]) {
+    assert.ok(args.includes(expected))
+  }
+  const promptIndex = args.indexOf('--prompt-file')
+  assert.equal(existsSync(args[promptIndex + 1]), false)
+})
+
+test('grok failures use the grok error kind', async () => {
+  const runner = new Runner({
+    agent: 'grok',
+    executable: fakeGrok,
+    env: { CODEXCW_GROK_ERROR: '1' },
+  })
+
+  await assert.rejects(runner.run({ prompt: 'fail' }), (err) => {
+    assert.ok(err instanceof CodexcwError)
+    assert.equal(err.kind, 'grok')
+    assert.match(err.message, /maximum number of turns/)
+    return true
+  })
 })
 
 test('getClaudeAccountUsage reads the Claude usage report', async () => {

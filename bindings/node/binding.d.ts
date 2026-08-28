@@ -178,7 +178,7 @@ export interface JsConfigOverride {
 export interface JsError {
   /**
    * One of: `promptRequired`, `invalidRequest`, `exit`, `decode`, `codex`,
-   * `claude`, `handler`, `cancelled`, `process`.
+   * `claude`, `grok`, `handler`, `cancelled`, `process`.
    */
   kind: string
   message: string
@@ -295,7 +295,7 @@ export interface JsRunEvent {
 
 /** Options for constructing a [`Runner`]. */
 export interface JsRunnerOptions {
-  /** Which agent CLI to wrap: `codex` (default) or `claude`. */
+  /** Which agent CLI to wrap: `codex` (default), `claude`, or `grok`. */
   agent?: string
   executable?: string
   env?: Record<string, string>

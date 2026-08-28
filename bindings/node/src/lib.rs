@@ -117,7 +117,7 @@ pub struct JsRunResult {
 #[napi(object)]
 pub struct JsError {
     /// One of: `promptRequired`, `invalidRequest`, `exit`, `decode`, `codex`,
-    /// `claude`, `handler`, `cancelled`, `process`.
+    /// `claude`, `grok`, `handler`, `cancelled`, `process`.
     pub kind: String,
     pub message: String,
     pub code: Option<i32>,
@@ -284,7 +284,7 @@ pub struct JsGroupResult {
 /// Options for constructing a [`Runner`].
 #[napi(object)]
 pub struct JsRunnerOptions {
-    /// Which agent CLI to wrap: `codex` (default) or `claude`.
+    /// Which agent CLI to wrap: `codex` (default), `claude`, or `grok`.
     pub agent: Option<String>,
     pub executable: Option<String>,
     pub env: Option<HashMap<String, String>>,
@@ -376,6 +376,7 @@ fn parse_agent(value: &str) -> Result<codexcw::Agent, JsError> {
     match value {
         "codex" => Ok(codexcw::Agent::Codex),
         "claude" => Ok(codexcw::Agent::Claude),
+        "grok" => Ok(codexcw::Agent::Grok),
         other => Err(invalid_request(format!("unknown agent: {other}"))),
     }
 }
@@ -619,6 +620,13 @@ fn to_js_error(error: &codexcw::Error) -> JsError {
         },
         Claude { .. } => JsError {
             kind: "claude".to_string(),
+            message: error.to_string(),
+            code: None,
+            stderr: None,
+            line: None,
+        },
+        Grok { .. } => JsError {
+            kind: "grok".to_string(),
             message: error.to_string(),
             code: None,
             stderr: None,
