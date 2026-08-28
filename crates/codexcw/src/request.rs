@@ -1,6 +1,6 @@
-//! The [`Request`] describing one `codex exec` invocation and its enums.
+//! The [`Request`] describing one selected-agent invocation and its enums.
 
-/// Sandbox policy passed to `codex exec`.
+/// Sandbox policy passed to Codex or mapped to a Grok sandbox profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SandboxMode {
     /// Inspect files without write access.
@@ -28,7 +28,7 @@ impl std::fmt::Display for SandboxMode {
     }
 }
 
-/// Approval policy passed to Codex through a config override.
+/// Approval policy passed to Codex or mapped to Grok permissions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ApprovalPolicy {
     /// Ask before commands outside Codex's trusted set.
@@ -66,17 +66,17 @@ pub mod claude_model {
     pub const OPUS: &str = "opus";
 }
 
-/// Permission modes accepted by the claude agent's `--permission-mode` flag.
+/// Permission modes accepted by Claude and Grok.
 pub mod permission_mode {
     /// Auto-approve file edits inside the workspace.
     pub const ACCEPT_EDITS: &str = "acceptEdits";
-    /// Let Claude choose when to request permission.
+    /// Let the selected agent choose when to request permission.
     pub const AUTO: &str = "auto";
     /// Skip all permission checks.
     pub const BYPASS_PERMISSIONS: &str = "bypassPermissions";
     /// Request permission for each protected action.
     pub const MANUAL: &str = "manual";
-    /// Keep Claude in read-only planning mode.
+    /// Keep the selected agent in read-only planning mode.
     pub const PLAN: &str = "plan";
     /// Deny any action that would prompt for approval.
     pub const DONT_ASK: &str = "dontAsk";
@@ -110,7 +110,7 @@ impl ConfigOverride {
     }
 }
 
-/// Describes one `codex exec` invocation.
+/// Describes one selected-agent invocation.
 ///
 /// All fields are optional except prompt or stdin. Build with
 /// [`Request::new`] and the chaining setters, or with a struct literal and
@@ -121,7 +121,7 @@ pub struct Request {
     pub prompt: String,
     /// Additional prompt input, or extra context when `prompt` is set.
     pub stdin: Option<Vec<u8>>,
-    /// Working directory passed as `--cd`.
+    /// Working directory passed to the selected agent.
     pub dir: Option<String>,
     /// Additional directories the agent may access.
     pub add_dirs: Vec<String>,
@@ -129,17 +129,17 @@ pub struct Request {
     pub images: Vec<String>,
     /// Model override for this run.
     pub model: Option<String>,
-    /// Codex config profile.
+    /// Codex config profile or Grok agent name.
     pub profile: Option<String>,
-    /// Sandbox policy override (codex agent only).
+    /// Sandbox policy override (Codex and Grok).
     pub sandbox: Option<SandboxMode>,
-    /// Approval policy override (codex agent only).
+    /// Approval policy override (Codex and Grok).
     pub approval: Option<ApprovalPolicy>,
-    /// Claude permission mode (claude agent only). See [`permission_mode`].
+    /// Claude or Grok permission mode. See [`permission_mode`].
     pub permission_mode: Option<String>,
-    /// Tool patterns Claude may use without prompting (claude agent only).
+    /// Tool patterns Claude or Grok may use without prompting.
     pub allowed_tools: Vec<String>,
-    /// Tool patterns denied to Claude (claude agent only).
+    /// Tool patterns denied to Claude or Grok.
     pub disallowed_tools: Vec<String>,
     /// Raw `-c` config overrides.
     pub config: Vec<ConfigOverride>,
@@ -149,7 +149,7 @@ pub struct Request {
     pub disable: Vec<String>,
     /// Reject unrecognized config fields.
     pub strict_config: bool,
-    /// Keep the agent session on disk.
+    /// Keep the agent session on disk. Grok sessions are always persisted.
     pub persistent: bool,
     /// Skip `CODEX_HOME/config.toml`.
     pub ignore_user_config: bool,
@@ -159,7 +159,7 @@ pub struct Request {
     pub require_git_repo: bool,
     /// Path to a JSON Schema file for the final response.
     pub output_schema_path: Option<String>,
-    /// Inline JSON Schema, written to a temporary file for the run.
+    /// Inline JSON Schema for the final response.
     pub output_schema: Option<Vec<u8>>,
     /// Ask Codex to write the final message to this file.
     pub output_last_message_path: Option<String>,
@@ -192,7 +192,7 @@ impl Request {
         self
     }
 
-    /// Sets the working directory (`--cd`).
+    /// Sets the selected agent's working directory.
     pub fn dir(mut self, dir: impl Into<String>) -> Self {
         self.dir = Some(dir.into());
         self

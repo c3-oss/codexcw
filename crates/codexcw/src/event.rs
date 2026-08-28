@@ -81,7 +81,7 @@ pub enum ItemKind {
     WebSearch,
     /// `plan_update` — an agent plan update.
     PlanUpdate,
-    /// `tool_call` — a generic tool call from the claude agent.
+    /// `tool_call` — a generic tool call from an agent.
     ToolCall,
     /// `collab_tool_call` — a multi-agent collab tool call
     /// (spawn/wait/send between agent threads).
@@ -153,18 +153,18 @@ pub struct Usage {
     pub reasoning_output_tokens: i64,
     /// Total token count for the full run, subagents included. When the
     /// agent omits an explicit total it is derived: input plus output tokens
-    /// for Codex, and the per-model sums when Claude reports model usage.
+    /// for Codex, and per-model sums when Claude or Grok reports model usage.
     #[serde(default)]
     pub total_tokens: i64,
-    /// Total Claude API cost in US dollars.
+    /// Total agent-reported API cost in US dollars.
     #[serde(default)]
     pub total_cost_usd: f64,
-    /// Claude usage and cost grouped by model.
+    /// Agent-reported usage and cost grouped by model.
     #[serde(default)]
     pub model_usage: HashMap<String, ModelUsage>,
 }
 
-/// Claude token usage and cost for one model.
+/// Token usage and cost for one model.
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelUsage {

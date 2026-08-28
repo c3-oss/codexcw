@@ -1,6 +1,6 @@
 //! Run agent CLIs non-interactively.
 //!
-//! `codexcw` runs Codex or Claude Code non-interactively: it spawns the
+//! `codexcw` runs Codex, Claude Code, or Grok Build non-interactively: it spawns the
 //! selected agent CLI, decodes the JSONL event stream, and exposes each run as
 //! async streams, callbacks, results, and typed errors. The Codex agent (the
 //! default) wraps `codex exec --json` with automation-friendly defaults: JSONL
@@ -8,11 +8,12 @@
 //! color disabled, and the Git repository check skipped. Selecting
 //! [`Agent::Claude`] on the builder wraps Claude Code
 //! (`claude -p --output-format stream-json`), normalizing its events into the
-//! same [`Event`] model with the original Claude JSON kept in `raw`.
+//! same [`Event`] model with the original agent JSON kept in `raw`.
+//! Selecting [`Agent::Grok`] wraps Grok Build with
+//! `streaming-messages-json` and the same normalized model.
 //!
 //! The selected agent's executable must be available on `PATH` and
-//! authenticated: `codex` new enough to support `codex exec --json`, `claude`
-//! new enough to support `--output-format stream-json`.
+//! authenticated and new enough for the wrapped JSONL mode.
 //!
 //! # Example
 //!
@@ -61,6 +62,7 @@ mod claude_account_usage;
 mod decoder;
 mod error;
 mod event;
+mod grok;
 mod group;
 mod request;
 mod runner;

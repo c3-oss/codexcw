@@ -71,7 +71,7 @@ pub(crate) fn prepare_claude(req: &Request) -> Result<Prepared, Error> {
     Ok(Prepared {
         args,
         stdin: prompt_bytes(req),
-        schema_temp: None,
+        temp_files: Vec::new(),
         current_dir: req.dir.clone().filter(|d| !d.is_empty()),
     })
 }
@@ -131,14 +131,39 @@ pub(crate) fn validate_claude_request(req: &Request) -> Result<(), Error> {
     Ok(())
 }
 
-/// Normalizes `claude -p --output-format stream-json` events into the shared
-/// [`Event`] model. Every emitted event keeps the original Claude JSON line in
-/// its `raw` field.
-#[derive(Default)]
+/// Normalizes Messages-compatible JSONL into the shared [`Event`] model.
 pub(crate) struct ClaudeDecoder {
+    dialect: MessageDialect,
     pending: HashMap<String, Item>,
     block_indexes: HashMap<String, usize>,
     last_agent_text: String,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum MessageDialect {
+    #[default]
+    Claude,
+    Grok,
+}
+
+impl MessageDialect {
+    fn name(self) -> &'static str {
+        match self {
+            MessageDialect::Claude => "claude",
+            MessageDialect::Grok => "grok",
+        }
+    }
+}
+
+impl Default for ClaudeDecoder {
+    fn default() -> Self {
+        Self {
+            dialect: MessageDialect::Claude,
+            pending: HashMap::new(),
+            block_indexes: HashMap::new(),
+            last_agent_text: String::new(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -155,6 +180,8 @@ struct WireEvent {
     is_error: bool,
     #[serde(default)]
     result: Option<String>,
+    #[serde(default)]
+    errors: Vec<String>,
     #[serde(default)]
     usage: WireUsage,
     #[serde(default)]
@@ -215,9 +242,20 @@ struct WireToolInput {
     file_path: String,
     #[serde(default)]
     notebook_path: String,
+    #[serde(default)]
+    target_file: String,
+    #[serde(default)]
+    path: String,
 }
 
 impl ClaudeDecoder {
+    pub(crate) fn grok() -> Self {
+        Self {
+            dialect: MessageDialect::Grok,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn decode(
         &mut self,
         line: &[u8],
@@ -297,13 +335,27 @@ impl ClaudeDecoder {
                         },
                     ));
                 }
-                "tool_use" => {
-                    let item = tool_item(&block, raw_block.get());
+                "tool_use" | "server_tool_use" => {
+                    let item = tool_item(self.dialect, &block, raw_block.get());
                     self.pending.insert(block.id.clone(), item.clone());
                     let mut started = base.clone();
                     started.kind = EventKind::ItemStarted;
                     started.payload = EventPayload::ItemStarted(item);
                     events.push(started);
+                }
+                "web_search_tool_result" => {
+                    let Some(mut item) = self.pending.remove(&block.tool_use_id) else {
+                        continue;
+                    };
+                    item.raw = raw_block.get().to_string();
+                    item.aggregated_output =
+                        tool_result_text(block.content.as_deref(), self.dialect);
+                    item.status = if block.is_error {
+                        "failed".to_string()
+                    } else {
+                        "completed".to_string()
+                    };
+                    events.push(item_completed(&base, item));
                 }
                 _ => {}
             }
@@ -326,15 +378,16 @@ impl ClaudeDecoder {
                 continue;
             };
             item.raw = raw_block.get().to_string();
-            item.aggregated_output = tool_result_text(block.content.as_deref());
+            item.aggregated_output = tool_result_text(block.content.as_deref(), self.dialect);
             item.status = if block.is_error {
                 "failed".to_string()
             } else {
                 "completed".to_string()
             };
             if item.kind == ItemKind::CommandExecution {
-                item.exit_code = command_exit_code(wire.tool_use_result.as_deref(), &block)
-                    .or((!block.is_error).then_some(0));
+                item.exit_code =
+                    command_exit_code(wire.tool_use_result.as_deref(), &block, self.dialect)
+                        .or((!block.is_error).then_some(0));
             }
             if item.kind == ItemKind::FileChange && !item.changes.is_empty() {
                 if let Some(kind) = file_change_kind(wire.tool_use_result.as_deref()) {
@@ -342,7 +395,11 @@ impl ClaudeDecoder {
                 }
             }
             if item.kind == ItemKind::CollabToolCall {
-                if let Some(agent_id) = collab_agent_id(wire.tool_use_result.as_deref()) {
+                if let Some(agent_id) = collab_agent_id(
+                    wire.tool_use_result.as_deref(),
+                    block.content.as_deref(),
+                    self.dialect,
+                ) {
                     item.receiver_thread_ids = vec![agent_id];
                 }
             }
@@ -358,10 +415,12 @@ impl ClaudeDecoder {
         let result_text = wire.result.clone().unwrap_or_default();
         let usage = result_usage(wire);
         if wire.is_error {
-            let message = if result_text.is_empty() {
-                "claude run failed".to_string()
-            } else {
+            let message = if !result_text.is_empty() {
                 result_text
+            } else if !wire.errors.is_empty() {
+                wire.errors.join("; ")
+            } else {
+                format!("{} run failed", self.dialect.name())
             };
             let mut failed = base.clone();
             failed.kind = EventKind::TurnFailed;
@@ -409,7 +468,7 @@ impl ClaudeDecoder {
 
 fn result_usage(wire: &WireEvent) -> Usage {
     // result.usage covers the root agent only; modelUsage and the cost also
-    // cover subagents. The full-run total comes from modelUsage when Claude
+    // cover subagents. The full-run total comes from modelUsage when the agent
     // reports it.
     let mut total_tokens = wire.usage.input_tokens
         + wire.usage.cache_creation_input_tokens
@@ -440,17 +499,32 @@ fn result_usage(wire: &WireEvent) -> Usage {
     }
 }
 
-fn collab_agent_id(tool_use_result: Option<&RawValue>) -> Option<String> {
+fn collab_agent_id(
+    tool_use_result: Option<&RawValue>,
+    content: Option<&RawValue>,
+    dialect: MessageDialect,
+) -> Option<String> {
     #[derive(serde::Deserialize)]
     struct Wire {
         #[serde(rename = "agentId", default)]
         agent_id: String,
+        #[serde(default)]
+        task_id: String,
+        #[serde(default)]
+        subagent_id: String,
     }
-    let wire: Wire = serde_json::from_str(tool_use_result?.get()).ok()?;
-    (!wire.agent_id.is_empty()).then_some(wire.agent_id)
+    let raw = match (tool_use_result, dialect) {
+        (Some(raw), _) => raw.get().to_string(),
+        (None, MessageDialect::Grok) => nested_grok_result(content?)?,
+        (None, MessageDialect::Claude) => return None,
+    };
+    let wire: Wire = serde_json::from_str(&raw).ok()?;
+    [wire.agent_id, wire.task_id, wire.subagent_id]
+        .into_iter()
+        .find(|value| !value.is_empty())
 }
 
-fn tool_item(block: &WireBlock, raw_block: &str) -> Item {
+fn tool_item(dialect: MessageDialect, block: &WireBlock, raw_block: &str) -> Item {
     let input: WireToolInput = block
         .input
         .as_deref()
@@ -465,18 +539,26 @@ fn tool_item(block: &WireBlock, raw_block: &str) -> Item {
     };
 
     match block.name.as_str() {
-        "Bash" => {
+        "Bash" | "run_terminal_command" => {
             item.kind = ItemKind::CommandExecution;
             item.command = input.command;
         }
-        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => {
+        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" | "search_replace" | "write" => {
             item.kind = ItemKind::FileChange;
             let path = if input.file_path.is_empty() {
-                input.notebook_path
+                if input.notebook_path.is_empty() {
+                    if input.target_file.is_empty() {
+                        input.path
+                    } else {
+                        input.target_file
+                    }
+                } else {
+                    input.notebook_path
+                }
             } else {
                 input.file_path
             };
-            let kind = if block.name == "Write" {
+            let kind = if block.name == "Write" || block.name == "write" {
                 "add"
             } else {
                 "update"
@@ -486,14 +568,15 @@ fn tool_item(block: &WireBlock, raw_block: &str) -> Item {
                 kind: kind.to_string(),
             }];
         }
-        "WebSearch" => item.kind = ItemKind::WebSearch,
+        "WebSearch" | "web_search" | "web_fetch" => item.kind = ItemKind::WebSearch,
         // "Task" is the legacy name of the subagent tool; current Claude
         // Code CLIs call it "Agent".
-        "Task" | "Agent" => {
+        "Task" | "Agent" | "spawn_subagent" => {
             item.kind = ItemKind::CollabToolCall;
             item.tool = block.name.clone();
         }
-        "TodoWrite" => item.kind = ItemKind::PlanUpdate,
+        "TodoWrite" | "todo_write" => item.kind = ItemKind::PlanUpdate,
+        "use_tool" if dialect == MessageDialect::Grok => item.kind = ItemKind::McpToolCall,
         name if name.starts_with("mcp__") => item.kind = ItemKind::McpToolCall,
         _ => item.kind = ItemKind::ToolCall,
     }
@@ -507,11 +590,28 @@ fn content_blocks(message: Option<&WireMessage>) -> Vec<Box<RawValue>> {
         .unwrap_or_default()
 }
 
-fn tool_result_text(raw: Option<&RawValue>) -> String {
+fn tool_result_text(raw: Option<&RawValue>, dialect: MessageDialect) -> String {
     let Some(raw) = raw else {
         return String::new();
     };
     if let Ok(text) = serde_json::from_str::<String>(raw.get()) {
+        if dialect == MessageDialect::Grok {
+            #[derive(Deserialize)]
+            struct GrokResult {
+                #[serde(default)]
+                output: Vec<u8>,
+                #[serde(default)]
+                output_for_prompt: String,
+            }
+            if let Ok(result) = serde_json::from_str::<GrokResult>(&text) {
+                if !result.output.is_empty() {
+                    return String::from_utf8_lossy(&result.output).into_owned();
+                }
+                if !result.output_for_prompt.is_empty() {
+                    return result.output_for_prompt;
+                }
+            }
+        }
         return text;
     }
 
@@ -549,7 +649,11 @@ fn file_change_kind(raw: Option<&RawValue>) -> Option<String> {
     }
 }
 
-fn command_exit_code(raw: Option<&RawValue>, block: &WireBlock) -> Option<i32> {
+fn command_exit_code(
+    raw: Option<&RawValue>,
+    block: &WireBlock,
+    dialect: MessageDialect,
+) -> Option<i32> {
     #[derive(Deserialize)]
     struct ToolUseResult {
         #[serde(default, alias = "exitCode")]
@@ -568,7 +672,20 @@ fn command_exit_code(raw: Option<&RawValue>, block: &WireBlock) -> Option<i32> {
             }
         }
     }
-    exit_code_from_text(&tool_result_text(block.content.as_deref()))
+    if dialect == MessageDialect::Grok {
+        if let Some(raw) = block.content.as_deref().and_then(nested_grok_result) {
+            if let Ok(result) = serde_json::from_str::<ToolUseResult>(&raw) {
+                if result.exit_code.is_some() {
+                    return result.exit_code;
+                }
+            }
+        }
+    }
+    exit_code_from_text(&tool_result_text(block.content.as_deref(), dialect))
+}
+
+fn nested_grok_result(raw: &RawValue) -> Option<String> {
+    serde_json::from_str::<String>(raw.get()).ok()
 }
 
 fn exit_code_from_text(text: &str) -> Option<i32> {
@@ -614,7 +731,7 @@ mod tests {
         };
         let prepared = prepare_claude(&req).unwrap();
         assert_eq!(prepared.stdin, b"diga oi");
-        assert!(prepared.schema_temp.is_none());
+        assert!(prepared.temp_files.is_empty());
         for want in [
             "-p",
             "--output-format",
@@ -757,6 +874,64 @@ mod tests {
         assert!(task.raw.contains("subagent_type"));
         let todo = started[1].item_started().unwrap();
         assert_eq!(todo.kind, ItemKind::PlanUpdate);
+    }
+
+    #[test]
+    fn grok_tools_and_results_map_to_shared_items() {
+        let mut decoder = ClaudeDecoder::grok();
+        let started = decoder
+            .decode(
+                br#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"cmd","name":"run_terminal_command","input":{"command":"printf hi"}},{"type":"tool_use","id":"edit","name":"search_replace","input":{"target_file":"src/main.rs"}},{"type":"tool_use","id":"sub","name":"spawn_subagent","input":{}},{"type":"tool_use","id":"todo","name":"todo_write","input":{}},{"type":"tool_use","id":"mcp","name":"use_tool","input":{}},{"type":"server_tool_use","id":"web","name":"web_search","input":{}}]},"session_id":"grok-session"}"#,
+                "run-x",
+                "grok-session",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+
+        let items: Vec<&Item> = started
+            .iter()
+            .map(|event| event.item_started().unwrap())
+            .collect();
+        assert_eq!(items[0].kind, ItemKind::CommandExecution);
+        assert_eq!(items[0].command, "printf hi");
+        assert_eq!(items[1].kind, ItemKind::FileChange);
+        assert_eq!(items[1].changes[0].path, "src/main.rs");
+        assert_eq!(items[2].kind, ItemKind::CollabToolCall);
+        assert_eq!(items[3].kind, ItemKind::PlanUpdate);
+        assert_eq!(items[4].kind, ItemKind::McpToolCall);
+        assert_eq!(items[5].kind, ItemKind::WebSearch);
+
+        let completed = decoder
+            .decode(
+                br#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"cmd","content":"{\"type\":\"Bash\",\"output\":[104,105,10],\"output_for_prompt\":\"exit: 0\\nhi\\n\",\"exit_code\":0}"},{"type":"tool_result","tool_use_id":"sub","content":"{\"task_id\":\"agent-7\",\"output\":[]}"}]},"session_id":"grok-session"}"#,
+                "run-x",
+                "grok-session",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+        let command = completed[0].item_completed().unwrap();
+        assert_eq!(command.aggregated_output, "hi\n");
+        assert_eq!(command.exit_code, Some(0));
+        let collab = completed[1].item_completed().unwrap();
+        assert_eq!(collab.receiver_thread_ids, ["agent-7"]);
+    }
+
+    #[test]
+    fn grok_error_uses_errors_array_when_result_is_absent() {
+        let mut decoder = ClaudeDecoder::grok();
+        let events = decoder
+            .decode(
+                br#"{"type":"result","subtype":"error_max_turns","is_error":true,"errors":["Reached the maximum number of turns"],"session_id":"grok-session"}"#,
+                "run-x",
+                "grok-session",
+                SystemTime::UNIX_EPOCH,
+            )
+            .unwrap();
+
+        let EventPayload::TurnFailed { error, .. } = &events[0].payload else {
+            panic!("expected turn.failed");
+        };
+        assert_eq!(error.message, "Reached the maximum number of turns");
     }
 
     #[test]
