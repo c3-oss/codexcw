@@ -129,7 +129,7 @@ export interface JsAccountUsageAccount {
 /** Account usage result paired with any terminal error. */
 export interface JsAccountUsageOutcome {
   result?: JsAccountUsage
-  error?: Error
+  error?: JsError
 }
 
 /** Options for reading Codex account usage. */
@@ -150,7 +150,7 @@ export interface JsClaudeAccountUsage {
 /** Claude account usage paired with any terminal error. */
 export interface JsClaudeAccountUsageOutcome {
   result?: JsClaudeAccountUsage
-  error?: Error
+  error?: JsError
 }
 
 /** Options for reading Claude account usage. */
@@ -209,7 +209,7 @@ export interface JsGroupResult {
   index: number
   runId: string
   result?: JsRunResult
-  error?: Error
+  error?: JsError
 }
 
 /** A typed projection of an agent item. */
@@ -250,7 +250,7 @@ export interface JsModelUsage {
 /** A run result paired with any terminal error. */
 export interface JsOutcome {
   result: JsRunResult
-  error?: Error
+  error?: JsError
 }
 
 /** An agent run request. All fields are optional except prompt or stdin. */
