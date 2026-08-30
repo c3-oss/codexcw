@@ -95,7 +95,7 @@ Five independent trains, each on its own tag prefix:
 
 - `v<semver>` → `release-go.yml` (GoReleaser changelog; the Go module release).
 - `rust-v<semver>` → `release-crate.yml` (crates.io).
-- `node-v<semver>` → `release-npm.yml` (npm, per-platform native addons).
+- `node-v<semver>` → `release-npm.yml` (npm, per-platform native addons; OIDC trusted publishing).
 - `py-v<semver>` → `release-pypi.yml` (PyPI wheels + sdist).
 - `dotnet-v<semver>` → `release-nuget.yml` (nuget.org, Trusted Publishing/OIDC).
   The workflow fails unless the tag's semver matches `<Version>` in
