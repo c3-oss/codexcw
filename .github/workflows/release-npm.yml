@@ -27,8 +27,8 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, cross: true }
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, cross: true }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, napi_cross: true }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, zig: true }
           - { os: macos-latest, target: x86_64-apple-darwin }
           - { os: macos-latest, target: aarch64-apple-darwin }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
@@ -50,6 +50,14 @@ jobs:
           toolchain: "1.90.0"
           targets: ${{ matrix.target }}
 
+      # @napi-rs/cli >= 3.8 rejects --use-napi-cross for musl; cargo-zigbuild
+      # via --cross-compile is the supported path and needs zig on PATH.
+      - name: Setup Zig
+        if: matrix.zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
       - name: Install dependencies
         run: npm install
 
@@ -57,7 +65,8 @@ jobs:
         run: >-
           npx napi build --platform --release
           --target ${{ matrix.target }}
-          ${{ matrix.cross && '--use-napi-cross' || '' }}
+          ${{ matrix.napi_cross && '--use-napi-cross' || '' }}
+          ${{ matrix.zig && '--cross-compile' || '' }}
           --js binding.js --dts binding.d.ts
 
       - name: Upload artifact
