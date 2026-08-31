@@ -43,6 +43,11 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "build(deps)"
+    # 3.8+ rejects --use-napi-cross for musl and cargo-zigbuild needs rustc
+    # 1.91, above the repo's pinned 1.90 toolchain.
+    ignore:
+      - dependency-name: "@napi-rs/cli"
+        versions: [">=3.8.0"]
     groups:
       minor-and-patch:
         patterns: ["*"]
