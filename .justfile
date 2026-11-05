@@ -119,7 +119,7 @@ node-ci: node-build node-test
 # Python binding (codexcw)
 
 py-build:
-    cd bindings/python && uv venv && uv pip install -e ".[dev]"
+    cd bindings/python && uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]"
 
 py-test:
     cd bindings/python && .venv/bin/python -m pytest -q
