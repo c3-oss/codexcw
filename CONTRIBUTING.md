@@ -11,6 +11,11 @@ devbox shell      # enters the pinned environment (Go + Rust + Node + Python + .
 just ci           # runs the full local CI lane across all five languages
 ```
 
+Use Devbox 0.19.0. Shell initialization installs the pnpm version pinned in
+`package.json` into `.devbox/pnpm`, independently of Corepack or global pnpm.
+Tooling overrides live in `pnpm-workspace.yaml`; the Node binding continues
+to use npm and its own lockfile.
+
 Without devbox you'll need: a Go toolchain (see `go.mod`), a Rust toolchain (see
 `rust-toolchain.toml`), `just`, Node 24 + npm, Python 3.9+, `uv`, `maturin`, the
 .NET 10 SDK, plus `gitleaks`, `lychee`, and `markdownlint-cli2`. `just tools`
