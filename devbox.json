@@ -27,7 +27,8 @@
   },
   "env": {
     "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
-    "DOTNET_NOLOGO": "1"
+    "DOTNET_NOLOGO": "1",
+    "DEVBOX_COREPACK_ENABLED": ""
   },
   "shell": {
     "init_hook": [
