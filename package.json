@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Developer tooling for codexcw.",
-  "packageManager": "pnpm@10.20.0",
+  "packageManager": "pnpm@12.16.1",
   "scripts": {
     "commitlint": "commitlint --config commitlint.config.cjs",
     "lint:links": "just lint-links",
@@ -16,11 +16,5 @@
     "@commitlint/config-conventional": "^21.2.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "fast-uri": "^3.1.5",
-      "js-yaml": "^4.3.1"
-    }
   }
 }

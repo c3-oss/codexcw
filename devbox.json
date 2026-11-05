@@ -14,7 +14,6 @@
     "markdownlint-cli2": "0.21",
     "just": "1.51",
     "nodejs": "24",
-    "pnpm": "10.20",
     "ripgrep": "15.1",
     "python": {
       "version": "3.12",
@@ -27,12 +26,14 @@
     "dotnet-sdk_10": "10.0"
   },
   "env": {
-    "DEVBOX_COREPACK_ENABLED": "true",
     "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
-    "DOTNET_NOLOGO": "1"
+    "DOTNET_NOLOGO": "1",
+    "DEVBOX_COREPACK_ENABLED": ""
   },
   "shell": {
     "init_hook": [
+      "export PATH=\"$PWD/.devbox/pnpm/bin:$PATH\"",
+      "bash scripts/bootstrap-pnpm.sh",
       "export GOBIN=$PWD/bin",
       "export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}",
       "export PATH=$PATH:$CARGO_HOME/bin:$GOBIN",

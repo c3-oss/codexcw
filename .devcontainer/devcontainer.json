@@ -3,8 +3,12 @@
   "image": "mcr.microsoft.com/devcontainers/go:1-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/rust:1": {},
-    "ghcr.io/devcontainers/features/node:1": { "version": "24" },
-    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
     "ghcr.io/devcontainers-extra/features/just:1": {}
   },
   "customizations": {
@@ -25,6 +29,6 @@
       }
     }
   },
-  "postCreateCommand": "go mod download && pnpm install --frozen-lockfile && pnpm exec husky",
+  "postCreateCommand": "bash scripts/bootstrap-pnpm.sh && export PATH=\"$PWD/.devbox/pnpm/bin:$PATH\" && go mod download && pnpm install --frozen-lockfile && pnpm exec husky",
   "remoteUser": "vscode"
 }

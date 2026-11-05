@@ -16,7 +16,6 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,12 +25,13 @@ jobs:
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
-          devbox-version: 0.17.4
+          devbox-version: 0.19.0
 
       - name: Verify packaging
         run: devbox run -- cargo publish -p codexcw --dry-run
 
       - name: Publish
+        if: startsWith(github.ref, 'refs/tags/rust-v')
         run: devbox run -- cargo publish -p codexcw
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
