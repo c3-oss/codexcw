@@ -488,7 +488,7 @@ public sealed class Runner
             // pipes after 1s.
             var waitDelayExpired = false;
             var pumps = Task.WhenAll(stderrPump, stdinTask);
-            if (await Task.WhenAny(pumps, Task.Delay(WaitDelay)).ConfigureAwait(false) != pumps)
+            if (await Task.WhenAny(pumps, Task.Delay(WaitDelay, CancellationToken.None)).ConfigureAwait(false) != pumps)
             {
                 waitDelayExpired = true;
                 ForceClose(process.StandardError.BaseStream);
