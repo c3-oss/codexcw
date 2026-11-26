@@ -54,19 +54,23 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 	assert.Contains(t, string(args), "--cyber-access-program\ndaybreak_red\n")
 }
 
-func TestRunCommandRejectsUnknownCyberAccessProgram(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "started")
-	fake := writeFakeCodex(t, `
+func TestRunCommandRejectsInvalidCyberAccessProgram(t *testing.T) {
+	for _, program := range []string{"daybreak_green", ""} {
+		t.Run("program="+program, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "started")
+			fake := writeFakeCodex(t, `
 : >"`+marker+`"
 `)
 
-	cmd := newRootCmd()
-	cmd.SetArgs([]string{"run", "--codex-bin", fake, "--cyber-access-program", "daybreak_green", "say hello"})
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{"run", "--codex-bin", fake, "--cyber-access-program=" + program, "say hello"})
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
 
-	require.ErrorIs(t, cmd.Execute(), codexcw.ErrInvalidRequest)
-	assert.NoFileExists(t, marker)
+			require.ErrorIs(t, cmd.Execute(), codexcw.ErrInvalidRequest)
+			assert.NoFileExists(t, marker)
+		})
+	}
 }
 
 func writeFakeCodex(t *testing.T, body string) string {
