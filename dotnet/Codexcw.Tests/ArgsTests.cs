@@ -88,36 +88,6 @@ public sealed class CodexArgsTests
     }
 
     [Fact]
-    public void UnknownCyberAccessProgramIsRejectedBeforeWritingSchema()
-    {
-        var marker = Guid.NewGuid().ToString("N");
-
-        Assert.Throws<InvalidRequestException>(() => Prepare(new Request
-        {
-            Prompt = "x",
-            OutputSchema = $"{{\"title\":\"{marker}\"}}",
-            CyberAccessProgram = (CyberAccessProgram)99,
-        }));
-
-        Assert.DoesNotContain(
-            Directory.EnumerateFiles(Path.GetTempPath(), "codexcw-schema-*.json"),
-            path => SchemaFileContains(path, marker));
-    }
-
-    // The temp directory is shared: other runs create, delete, and own schema files there.
-    private static bool SchemaFileContains(string path, string marker)
-    {
-        try
-        {
-            return File.ReadAllText(path).Contains(marker, StringComparison.Ordinal);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    [Fact]
     public void ResumeArgsUseConfigOverrides()
     {
         var prepared = Prepare(new Request
@@ -299,4 +269,47 @@ public sealed class ClaudeArgsTests
     {
         Assert.Throws<PromptRequiredException>(() => ClaudeArgs.Prepare(new Request()));
     }
+}
+
+/// <summary>Tests that redirect the process temp directory run outside the parallel phase.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class TempPathIsolation
+{
+    public const string Name = "temp path isolation";
+}
+
+[Collection(TempPathIsolation.Name)]
+public sealed class CodexArgsSchemaFileTests
+{
+    [Fact]
+    public void UnknownCyberAccessProgramIsRejectedBeforeWritingSchema()
+    {
+        var variable = OperatingSystem.IsWindows() ? "TMP" : "TMPDIR";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        var dir = Directory.CreateTempSubdirectory("codexcw-test-");
+        Environment.SetEnvironmentVariable(variable, dir.FullName);
+        try
+        {
+            // Control: an accepted request writes its schema file into this directory.
+            var prepared = Prepare(new Request { Prompt = "x", OutputSchema = "{}" });
+            Assert.Single(dir.EnumerateFiles());
+            File.Delete(prepared.SchemaTempPath!);
+
+            Assert.Throws<InvalidRequestException>(() => Prepare(new Request
+            {
+                Prompt = "x",
+                OutputSchema = "{}",
+                CyberAccessProgram = (CyberAccessProgram)99,
+            }));
+            Assert.Empty(dir.EnumerateFiles());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+            dir.Delete(recursive: true);
+        }
+    }
+
+    private static PreparedRun Prepare(Request request) =>
+        CodexArgs.Prepare(request, SandboxMode.ReadOnly, ApprovalPolicy.Never);
 }
