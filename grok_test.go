@@ -197,6 +197,7 @@ func TestValidateGrokRequest(t *testing.T) {
 	for _, req := range []Request{
 		{},
 		{Prompt: "x", AddDirs: []string{"/other"}},
+		{Prompt: "x", CyberAccessProgram: CyberAccessStandard},
 		{Prompt: "x", Approval: ApprovalNever, PermissionMode: PermissionDontAsk},
 		{Prompt: "x", ResumeID: "id", ResumeLast: true},
 	} {

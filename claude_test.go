@@ -378,6 +378,7 @@ func TestValidateClaudeRequest(t *testing.T) {
 		{name: "strict config", req: Request{Prompt: "x", StrictConfig: true}, want: ErrInvalidRequest},
 		{name: "ignore user config", req: Request{Prompt: "x", IgnoreUserConfig: true}, want: ErrInvalidRequest},
 		{name: "ignore rules", req: Request{Prompt: "x", IgnoreRules: true}, want: ErrInvalidRequest},
+		{name: "cyber access program", req: Request{Prompt: "x", CyberAccessProgram: CyberAccessStandard}, want: ErrInvalidRequest},
 		{name: "require git repo", req: Request{Prompt: "x", RequireGitRepo: true}, want: ErrInvalidRequest},
 		{name: "output last message path", req: Request{Prompt: "x", OutputLastMessagePath: "o.txt"}, want: ErrInvalidRequest},
 		{name: "bypass hooks", req: Request{Prompt: "x", DangerouslyBypassHooks: true}, want: ErrInvalidRequest},

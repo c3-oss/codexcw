@@ -595,6 +595,11 @@ func validateRequest(req Request) error {
 			return fmt.Errorf("%w: dir, add dirs, and profile are not supported by codex exec resume", ErrInvalidRequest)
 		}
 	}
+	switch req.CyberAccessProgram {
+	case "", CyberAccessStandard, CyberAccessDaybreakBlue, CyberAccessDaybreakRed:
+	default:
+		return fmt.Errorf("%w: unknown cyber access program: %s", ErrInvalidRequest, req.CyberAccessProgram)
+	}
 	return nil
 }
 
@@ -634,6 +639,9 @@ func (r *Runner) appendCommonArgs(args []string, req Request, schemaPath string)
 	}
 	if req.IgnoreRules {
 		args = append(args, "--ignore-rules")
+	}
+	if req.CyberAccessProgram != "" {
+		args = append(args, "--cyber-access-program", string(req.CyberAccessProgram))
 	}
 	if req.DangerouslyBypassSandbox {
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")

@@ -374,6 +374,7 @@ func TestPrepareBuildsAdvancedArgs(t *testing.T) {
 		StrictConfig:           true,
 		IgnoreUserConfig:       true,
 		IgnoreRules:            true,
+		CyberAccessProgram:     CyberAccessDaybreakBlue,
 		OutputSchema:           []byte(`{"type":"object"}`),
 		OutputLastMessagePath:  "last.txt",
 		DangerouslyBypassHooks: true,
@@ -399,7 +400,8 @@ func TestPrepareBuildsAdvancedArgs(t *testing.T) {
 		"exec", "--json", "--color", "never", "--strict-config", "-m", "gpt-test",
 		"-p", "work", "--enable", "feature-a", "--disable", "feature-b", "-i",
 		"image.png", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config",
-		"--ignore-rules", "--sandbox", "workspace-write", "-c", `approval_policy="on-request"`,
+		"--ignore-rules", "--cyber-access-program", "daybreak_blue",
+		"--sandbox", "workspace-write", "-c", `approval_policy="on-request"`,
 		"--dangerously-bypass-hook-trust", "-C", "/work", "--add-dir", "/other",
 		"-o", "last.txt", `foo.bar="baz"`, "raw=true", "-",
 	} {
@@ -409,12 +411,13 @@ func TestPrepareBuildsAdvancedArgs(t *testing.T) {
 
 func TestPrepareResumeArgs(t *testing.T) {
 	args, stdin, cleanup, err := New().prepare(Request{
-		Prompt:     "continue",
-		ResumeID:   "thread-id",
-		ResumeAll:  true,
-		Persistent: true,
-		Sandbox:    SandboxDangerFullAccess,
-		Approval:   ApprovalUntrusted,
+		Prompt:             "continue",
+		ResumeID:           "thread-id",
+		ResumeAll:          true,
+		Persistent:         true,
+		Sandbox:            SandboxDangerFullAccess,
+		Approval:           ApprovalUntrusted,
+		CyberAccessProgram: CyberAccessStandard,
 	})
 	require.NoError(t, err)
 	require.Nil(t, cleanup)
@@ -422,6 +425,9 @@ func TestPrepareResumeArgs(t *testing.T) {
 
 	assert.Equal(t, "exec", args[0])
 	assert.Equal(t, "resume", args[1])
+	programIndex := indexOf(args, "--cyber-access-program")
+	require.NotEqual(t, -1, programIndex)
+	assert.Equal(t, "standard", args[programIndex+1])
 	assert.Contains(t, args, "--all")
 	assert.Contains(t, args, "thread-id")
 	assert.Contains(t, args, `sandbox_mode="danger-full-access"`)
@@ -445,6 +451,7 @@ func TestValidateRequest(t *testing.T) {
 		{name: "resume id and last", req: Request{Prompt: "x", ResumeID: "id", ResumeLast: true}, want: ErrInvalidRequest},
 		{name: "resume all without resume", req: Request{Prompt: "x", ResumeAll: true}, want: ErrInvalidRequest},
 		{name: "resume with dir", req: Request{Prompt: "x", ResumeLast: true, Dir: "."}, want: ErrInvalidRequest},
+		{name: "unknown cyber access program", req: Request{Prompt: "x", CyberAccessProgram: "daybreak_green"}, want: ErrInvalidRequest},
 	}
 
 	for _, tt := range tests {

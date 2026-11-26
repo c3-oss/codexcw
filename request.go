@@ -30,6 +30,20 @@ const (
 	ApprovalNever ApprovalPolicy = "never"
 )
 
+// CyberAccessProgram selects the Cyber access program Codex requests for a run.
+type CyberAccessProgram string
+
+const (
+	// CyberAccessStandard requests the standard Cyber access program.
+	CyberAccessStandard CyberAccessProgram = "standard"
+
+	// CyberAccessDaybreakBlue requests the Daybreak Blue program.
+	CyberAccessDaybreakBlue CyberAccessProgram = "daybreak_blue"
+
+	// CyberAccessDaybreakRed requests the Daybreak Red program.
+	CyberAccessDaybreakRed CyberAccessProgram = "daybreak_red"
+)
+
 // ConfigOverride is passed as one -c key=value override.
 type ConfigOverride struct {
 	// Key is the config path before the equals sign.
@@ -106,6 +120,9 @@ type Request struct {
 
 	// IgnoreRules skips user and project execpolicy .rules files.
 	IgnoreRules bool
+
+	// CyberAccessProgram requests a Codex Cyber access program.
+	CyberAccessProgram CyberAccessProgram
 
 	// RequireGitRepo lets Codex enforce its Git repository check.
 	RequireGitRepo bool
