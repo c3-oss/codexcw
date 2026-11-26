@@ -299,8 +299,11 @@ _, _ = runner.Run(ctx, codexcw.Request{
 })
 ```
 
+An empty `CyberAccessProgram` is the zero value and omits the flag.
+
 The example CLI exposes the same option:
-`codexcw run --cyber-access-program daybreak_blue "..."`.
+`codexcw run --cyber-access-program daybreak_blue "..."`. The CLI rejects an
+explicitly empty `--cyber-access-program=`.
 
 ## Claude Code agent
 
