@@ -85,7 +85,8 @@ pub use event::{
 };
 pub use group::{Group, GroupResult, ManyOptions, RunEvent};
 pub use request::{
-    claude_model, permission_mode, ApprovalPolicy, ConfigOverride, Request, SandboxMode,
+    claude_model, permission_mode, ApprovalPolicy, ConfigOverride, CyberAccessProgram, Request,
+    SandboxMode,
 };
 pub use runner::{handler, Agent, Handler, RunOptions, Runner, RunnerBuilder};
 pub use session::{RunResult, Session};

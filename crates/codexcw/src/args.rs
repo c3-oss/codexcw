@@ -175,6 +175,10 @@ fn append_common_args(
     if req.ignore_rules {
         args.push("--ignore-rules".to_string());
     }
+    if let Some(program) = req.cyber_access_program {
+        args.push("--cyber-access-program".to_string());
+        args.push(program.as_str().to_string());
+    }
     if req.dangerously_bypass_sandbox {
         args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
     } else {
@@ -240,7 +244,7 @@ pub(crate) fn nonempty(value: &Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::request::ConfigOverride;
+    use crate::request::{ConfigOverride, CyberAccessProgram};
 
     fn defaults() -> (SandboxMode, ApprovalPolicy) {
         (SandboxMode::ReadOnly, ApprovalPolicy::Never)
@@ -286,6 +290,7 @@ mod tests {
             strict_config: true,
             ignore_user_config: true,
             ignore_rules: true,
+            cyber_access_program: Some(CyberAccessProgram::DaybreakBlue),
             output_schema: Some(br#"{"type":"object"}"#.to_vec()),
             output_last_message_path: Some("last.txt".to_string()),
             dangerously_bypass_hooks: true,
@@ -320,6 +325,8 @@ mod tests {
             "--ephemeral",
             "--ignore-user-config",
             "--ignore-rules",
+            "--cyber-access-program",
+            "daybreak_blue",
             "--sandbox",
             "workspace-write",
             "-c",
@@ -349,12 +356,18 @@ mod tests {
             persistent: true,
             sandbox: Some(SandboxMode::DangerFullAccess),
             approval: Some(ApprovalPolicy::Untrusted),
+            cyber_access_program: Some(CyberAccessProgram::Standard),
             ..Default::default()
         };
         let prepared = prepare(&req, s, a).unwrap();
         let args = &prepared.args;
         assert_eq!(args[0], "exec");
         assert_eq!(args[1], "resume");
+        let program_index = args
+            .iter()
+            .position(|a| a == "--cyber-access-program")
+            .unwrap();
+        assert_eq!(args[program_index + 1], "standard");
         assert!(args.contains(&"--all".to_string()));
         assert!(args.contains(&"thread-id".to_string()));
         assert!(args.contains(&r#"sandbox_mode="danger-full-access""#.to_string()));
