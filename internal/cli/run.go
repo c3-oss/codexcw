@@ -59,8 +59,12 @@ func newRunCmd() *cobra.Command {
 }
 
 func runCodex(ctx context.Context, cmd *cobra.Command, flags runFlags, args []string) error {
-	if cmd.Flags().Changed("cyber-access-program") && flags.cyberAccessProgram == "" {
-		return fmt.Errorf("%w: cyber access program must not be empty", codexcw.ErrInvalidRequest)
+	if cmd.Flags().Changed("cyber-access-program") {
+		switch codexcw.CyberAccessProgram(flags.cyberAccessProgram) {
+		case codexcw.CyberAccessStandard, codexcw.CyberAccessDaybreakBlue, codexcw.CyberAccessDaybreakRed:
+		default:
+			return fmt.Errorf("%w: unknown cyber access program: %q", codexcw.ErrInvalidRequest, flags.cyberAccessProgram)
+		}
 	}
 
 	prompt, err := promptFromArgsOrStdin(cmd.InOrStdin(), args)

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,8 +37,9 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 
 func TestRunCommandPassesCyberAccessProgram(t *testing.T) {
 	argsFile := filepath.Join(t.TempDir(), "args")
+	t.Setenv("CODEXCW_ARGS_FILE", argsFile)
 	fake := writeFakeCodex(t, `
-printf '%s\n' "$@" >"`+argsFile+`"
+printf '%s\n' "$@" >"$CODEXCW_ARGS_FILE"
 cat >/dev/null
 printf '%s\n' '{"type":"thread.started","thread_id":"cli-thread"}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
@@ -58,19 +60,31 @@ func TestRunCommandRejectsInvalidCyberAccessProgram(t *testing.T) {
 	for _, program := range []string{"daybreak_green", ""} {
 		t.Run("program="+program, func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "started")
+			t.Setenv("CODEXCW_STARTED_FILE", marker)
 			fake := writeFakeCodex(t, `
-: >"`+marker+`"
+: >"$CODEXCW_STARTED_FILE"
 `)
 
+			// No positional prompt: the flag is rejected without reading stdin.
+			stdin := &countingReader{}
 			cmd := newRootCmd()
-			cmd.SetArgs([]string{"run", "--codex-bin", fake, "--cyber-access-program=" + program, "say hello"})
+			cmd.SetArgs([]string{"run", "--codex-bin", fake, "--cyber-access-program=" + program})
+			cmd.SetIn(stdin)
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
 
 			require.ErrorIs(t, cmd.Execute(), codexcw.ErrInvalidRequest)
+			assert.Zero(t, stdin.reads)
 			assert.NoFileExists(t, marker)
 		})
 	}
+}
+
+type countingReader struct{ reads int }
+
+func (r *countingReader) Read([]byte) (int, error) {
+	r.reads++
+	return 0, io.EOF
 }
 
 func writeFakeCodex(t *testing.T, body string) string {
