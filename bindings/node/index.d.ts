@@ -9,6 +9,9 @@ export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 /** Approval policy mapped to Codex or Grok permissions. */
 export type ApprovalPolicy = 'untrusted' | 'on-request' | 'never'
 
+/** Cyber access program requested from Codex. */
+export type CyberAccessProgram = 'standard' | 'daybreak_blue' | 'daybreak_red'
+
 /** Permission mode passed to Claude or Grok. */
 export type PermissionModeValue =
   | 'acceptEdits'
@@ -244,6 +247,8 @@ export interface Request {
   persistent?: boolean
   ignoreUserConfig?: boolean
   ignoreRules?: boolean
+  /** Codex Cyber access program. */
+  cyberAccessProgram?: CyberAccessProgram
   requireGitRepo?: boolean
   outputSchemaPath?: string
   outputSchema?: string

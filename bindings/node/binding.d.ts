@@ -274,6 +274,7 @@ export interface JsRequest {
   persistent?: boolean
   ignoreUserConfig?: boolean
   ignoreRules?: boolean
+  cyberAccessProgram?: string
   requireGitRepo?: boolean
   outputSchemaPath?: string
   outputSchema?: string
