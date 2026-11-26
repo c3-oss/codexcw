@@ -96,6 +96,7 @@ internal static class CodexArgs
         {
             throw new InvalidRequestException("dir, add dirs, and profile are not supported by codex exec resume");
         }
+        _ = request.CyberAccessProgram?.ToWire();
     }
 
     private static void AppendCommonArgs(

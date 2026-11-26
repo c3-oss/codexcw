@@ -88,13 +88,33 @@ public sealed class CodexArgsTests
     }
 
     [Fact]
-    public void UnknownCyberAccessProgramIsRejected()
+    public void UnknownCyberAccessProgramIsRejectedBeforeWritingSchema()
     {
+        var marker = Guid.NewGuid().ToString("N");
+
         Assert.Throws<InvalidRequestException>(() => Prepare(new Request
         {
             Prompt = "x",
+            OutputSchema = $"{{\"title\":\"{marker}\"}}",
             CyberAccessProgram = (CyberAccessProgram)99,
         }));
+
+        Assert.DoesNotContain(
+            Directory.EnumerateFiles(Path.GetTempPath(), "codexcw-schema-*.json"),
+            path => SchemaFileContains(path, marker));
+    }
+
+    // Other tests create and delete schema files in the same directory concurrently.
+    private static bool SchemaFileContains(string path, string marker)
+    {
+        try
+        {
+            return File.ReadAllText(path).Contains(marker, StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     [Fact]
