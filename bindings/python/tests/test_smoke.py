@@ -152,6 +152,13 @@ def test_cyber_access_program_is_passed_to_codex(tmp_path):
     assert args[index + 1] == "daybreak_blue"
 
 
+def test_cyber_access_program_keeps_request_positional_order():
+    fields = list(Request.__dataclass_fields__)
+
+    assert fields[-1] == "cyber_access_program"
+    assert fields[19] == "require_git_repo"
+
+
 def test_unknown_cyber_access_program_is_rejected_before_codex_starts(tmp_path):
     runner, args_file, _ = _runner_with_capture(tmp_path)
 

@@ -227,7 +227,6 @@ class Request:
     persistent: bool = False
     ignore_user_config: bool = False
     ignore_rules: bool = False
-    cyber_access_program: Optional[CyberAccessProgram] = None
     require_git_repo: bool = False
     output_schema_path: Optional[str] = None
     output_schema: Optional[str] = None
@@ -238,6 +237,7 @@ class Request:
     resume_id: Optional[str] = None
     resume_last: bool = False
     resume_all: bool = False
+    cyber_access_program: Optional[CyberAccessProgram] = None
 
 
 @dataclass
