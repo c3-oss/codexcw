@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/c3-oss/codexcw"
 )
 
 func TestRunCommandPrintsFinalMessage(t *testing.T) {
@@ -30,6 +32,41 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
 	assert.Equal(t, "hello\n", stdout.String())
 	assert.Contains(t, stderr.String(), "thread cli-thread started")
 	assert.Contains(t, stderr.String(), "completed: input=1 output=1 reasoning=0")
+}
+
+func TestRunCommandPassesCyberAccessProgram(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args")
+	fake := writeFakeCodex(t, `
+printf '%s\n' "$@" >"`+argsFile+`"
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"cli-thread"}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`)
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"run", "--codex-bin", fake, "--cyber-access-program", "daybreak_red", "say hello"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	require.NoError(t, cmd.Execute())
+	args, err := os.ReadFile(argsFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(args), "--cyber-access-program\ndaybreak_red\n")
+}
+
+func TestRunCommandRejectsUnknownCyberAccessProgram(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	fake := writeFakeCodex(t, `
+: >"`+marker+`"
+`)
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"run", "--codex-bin", fake, "--cyber-access-program", "daybreak_green", "say hello"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	require.ErrorIs(t, cmd.Execute(), codexcw.ErrInvalidRequest)
+	assert.NoFileExists(t, marker)
 }
 
 func writeFakeCodex(t *testing.T, body string) string {

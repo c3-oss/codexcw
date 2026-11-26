@@ -23,6 +23,7 @@ type runFlags struct {
 	requireGitRepo        bool
 	ignoreUserConfig      bool
 	ignoreRules           bool
+	cyberAccessProgram    string
 }
 
 func newRunCmd() *cobra.Command {
@@ -52,6 +53,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&flags.requireGitRepo, "require-git-repo", false, "let Codex enforce the git repository check")
 	cmd.Flags().BoolVar(&flags.ignoreUserConfig, "ignore-user-config", false, "do not load CODEX_HOME/config.toml")
 	cmd.Flags().BoolVar(&flags.ignoreRules, "ignore-rules", false, "do not load execpolicy .rules files")
+	cmd.Flags().StringVar(&flags.cyberAccessProgram, "cyber-access-program", "", "Codex Cyber access program (standard, daybreak_blue, daybreak_red)")
 
 	return cmd
 }
@@ -73,6 +75,7 @@ func runCodex(ctx context.Context, cmd *cobra.Command, flags runFlags, args []st
 		RequireGitRepo:        flags.requireGitRepo,
 		IgnoreUserConfig:      flags.ignoreUserConfig,
 		IgnoreRules:           flags.ignoreRules,
+		CyberAccessProgram:    codexcw.CyberAccessProgram(flags.cyberAccessProgram),
 		OutputLastMessagePath: flags.outputLastMessagePath,
 	}
 
