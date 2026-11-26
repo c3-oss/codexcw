@@ -104,14 +104,14 @@ public sealed class CodexArgsTests
             path => SchemaFileContains(path, marker));
     }
 
-    // Other tests create and delete schema files in the same directory concurrently.
+    // The temp directory is shared: other runs create, delete, and own schema files there.
     private static bool SchemaFileContains(string path, string marker)
     {
         try
         {
             return File.ReadAllText(path).Contains(marker, StringComparison.Ordinal);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }
