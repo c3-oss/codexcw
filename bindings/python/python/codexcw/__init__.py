@@ -71,6 +71,7 @@ __all__ = [
     "ApprovalPolicy",
     "CodexcwError",
     "ConfigOverride",
+    "CyberAccessProgram",
     "Event",
     "FileChange",
     "Group",
@@ -91,6 +92,10 @@ __all__ = [
 # String literals accepted by ``Request.sandbox`` and ``Request.approval``.
 SandboxMode = str
 ApprovalPolicy = str
+
+# String literals accepted by ``Request.cyber_access_program``: ``standard``,
+# ``daybreak_blue``, or ``daybreak_red``. Codex only.
+CyberAccessProgram = str
 
 # String literals accepted by ``Runner(agent=...)`` and
 # ``Request.permission_mode``.
@@ -222,6 +227,7 @@ class Request:
     persistent: bool = False
     ignore_user_config: bool = False
     ignore_rules: bool = False
+    cyber_access_program: Optional[CyberAccessProgram] = None
     require_git_repo: bool = False
     output_schema_path: Optional[str] = None
     output_schema: Optional[str] = None

@@ -429,6 +429,7 @@ struct ReqData {
     persistent: Option<bool>,
     ignore_user_config: Option<bool>,
     ignore_rules: Option<bool>,
+    cyber_access_program: Option<String>,
     require_git_repo: Option<bool>,
     output_schema_path: Option<String>,
     output_schema: Option<String>,
@@ -449,6 +450,10 @@ impl ReqData {
         };
         let approval = match self.approval.as_deref() {
             Some(value) => Some(parse_approval(value)?),
+            None => None,
+        };
+        let cyber_access_program = match self.cyber_access_program.as_deref() {
+            Some(value) => Some(parse_cyber_access_program(value)?),
             None => None,
         };
         Ok(Request {
@@ -476,6 +481,7 @@ impl ReqData {
             persistent: self.persistent.unwrap_or(false),
             ignore_user_config: self.ignore_user_config.unwrap_or(false),
             ignore_rules: self.ignore_rules.unwrap_or(false),
+            cyber_access_program,
             require_git_repo: self.require_git_repo.unwrap_or(false),
             output_schema_path: self.output_schema_path,
             output_schema: self.output_schema.map(|s| s.into_bytes()),
@@ -555,6 +561,17 @@ fn parse_approval(value: &str) -> Result<ApprovalPolicy, PyError> {
         "on-request" => Ok(ApprovalPolicy::OnRequest),
         "never" => Ok(ApprovalPolicy::Never),
         other => Err(invalid_request(format!("unknown approval policy: {other}"))),
+    }
+}
+
+fn parse_cyber_access_program(value: &str) -> Result<codexcw::CyberAccessProgram, PyError> {
+    match value {
+        "standard" => Ok(codexcw::CyberAccessProgram::Standard),
+        "daybreak_blue" => Ok(codexcw::CyberAccessProgram::DaybreakBlue),
+        "daybreak_red" => Ok(codexcw::CyberAccessProgram::DaybreakRed),
+        other => Err(invalid_request(format!(
+            "unknown cyber access program: {other}"
+        ))),
     }
 }
 
