@@ -207,7 +207,7 @@ await runner.run({ prompt: '...', model: 'o3', profile: 'work' })
 
 `cyberAccessProgram` passes `--cyber-access-program` to Codex, on new runs and
 on resume. The programs are `'standard'`, `'daybreak_blue'`, and
-`'daybreak_red'`; any other value rejects with an `invalidRequest` error
+`'daybreak_red'`; any other string rejects with an `invalidRequest` error
 before the process starts. The field is Codex-only: Claude and Grok runners
 reject with `invalidRequest` when it is set.
 
