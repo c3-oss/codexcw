@@ -145,6 +145,7 @@ internal static class GrokArgs
             (request.StrictConfig, "strict config"),
             (request.IgnoreUserConfig, "ignore user config"),
             (request.IgnoreRules, "ignore rules"),
+            (request.CyberAccessProgram is not null, "cyber access program"),
             (request.RequireGitRepo, "require git repo"),
             (!string.IsNullOrEmpty(request.OutputLastMessagePath), "output last message path"),
             (request.DangerouslyBypassHooks, "dangerously bypass hooks"),

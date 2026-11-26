@@ -71,6 +71,7 @@ __all__ = [
     "ApprovalPolicy",
     "CodexcwError",
     "ConfigOverride",
+    "CyberAccessProgram",
     "Event",
     "FileChange",
     "Group",
@@ -91,6 +92,10 @@ __all__ = [
 # String literals accepted by ``Request.sandbox`` and ``Request.approval``.
 SandboxMode = str
 ApprovalPolicy = str
+
+# String literals accepted by ``Request.cyber_access_program``: ``standard``,
+# ``daybreak_blue``, or ``daybreak_red``. Codex only.
+CyberAccessProgram = str
 
 # String literals accepted by ``Runner(agent=...)`` and
 # ``Request.permission_mode``.
@@ -232,6 +237,7 @@ class Request:
     resume_id: Optional[str] = None
     resume_last: bool = False
     resume_all: bool = False
+    cyber_access_program: Optional[CyberAccessProgram] = None
 
 
 @dataclass

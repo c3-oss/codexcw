@@ -477,7 +477,7 @@ public sealed class LifecycleTests : IDisposable
         // The public channel holds one event and the forwarder is blocked on
         // the next write; DisposeAsync must release it and come back.
         var dispose = session.DisposeAsync().AsTask();
-        var finished = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromSeconds(5)));
+        var finished = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromSeconds(5), CancellationToken.None));
         Assert.Same(dispose, finished);
         await dispose;
     }

@@ -142,6 +142,48 @@ def test_missing_prompt_raises_typed_error(tmp_path):
     assert excinfo.value.kind == "promptRequired"
 
 
+def test_cyber_access_program_is_passed_to_codex(tmp_path):
+    runner, args_file, _ = _runner_with_capture(tmp_path)
+
+    runner.run(Request(prompt="x", cyber_access_program="daybreak_blue"))
+
+    args = args_file.read_text().strip().split("\n")
+    index = args.index("--cyber-access-program")
+    assert args[index + 1] == "daybreak_blue"
+
+
+def test_cyber_access_program_keeps_request_positional_order():
+    fields = list(Request.__dataclass_fields__)
+
+    assert fields.index("require_git_repo") == 19
+    assert fields.index("resume_all") == 28
+    assert fields.index("cyber_access_program") == 29
+
+
+def test_unknown_cyber_access_program_is_rejected_before_codex_starts(tmp_path):
+    runner, args_file, _ = _runner_with_capture(tmp_path)
+
+    with pytest.raises(CodexcwError) as excinfo:
+        runner.run(Request(prompt="x", cyber_access_program="daybreak_green"))
+
+    assert excinfo.value.kind == "invalidRequest"
+    assert "unknown cyber access program" in str(excinfo.value)
+    assert not args_file.exists()
+
+
+@pytest.mark.parametrize(
+    ("agent", "executable"), [("claude", FAKE_CLAUDE), ("grok", FAKE_GROK)]
+)
+def test_claude_and_grok_agents_reject_cyber_access_program(agent, executable):
+    runner = Runner(agent=agent, executable=str(executable))
+
+    with pytest.raises(CodexcwError) as excinfo:
+        runner.run(Request(prompt="x", cyber_access_program="standard"))
+
+    assert excinfo.value.kind == "invalidRequest"
+    assert "cyber access program is not supported" in str(excinfo.value)
+
+
 def test_invalid_agent_is_rejected_instead_of_falling_back_to_codex():
     with pytest.raises(CodexcwError) as excinfo:
         Runner(agent="unknown-agent")

@@ -97,7 +97,7 @@ pub(crate) fn validate_claude_request(req: &Request) -> Result<(), Error> {
         ));
     }
 
-    let unsupported: [(bool, &str); 14] = [
+    let unsupported: [(bool, &str); 15] = [
         (!req.images.is_empty(), "images"),
         (
             req.profile.as_deref().is_some_and(|p| !p.is_empty()),
@@ -111,6 +111,7 @@ pub(crate) fn validate_claude_request(req: &Request) -> Result<(), Error> {
         (req.strict_config, "strict config"),
         (req.ignore_user_config, "ignore user config"),
         (req.ignore_rules, "ignore rules"),
+        (req.cyber_access_program.is_some(), "cyber access program"),
         (req.require_git_repo, "require git repo"),
         (
             req.output_last_message_path
@@ -793,6 +794,11 @@ mod tests {
             Request {
                 prompt: "x".to_string(),
                 images: vec!["a.png".to_string()],
+                ..Default::default()
+            },
+            Request {
+                prompt: "x".to_string(),
+                cyber_access_program: Some(crate::request::CyberAccessProgram::Standard),
                 ..Default::default()
             },
             Request {

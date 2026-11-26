@@ -131,6 +131,7 @@ func validateGrokRequest(req Request) error {
 		{req.StrictConfig, "strict config"},
 		{req.IgnoreUserConfig, "ignore user config"},
 		{req.IgnoreRules, "ignore rules"},
+		{req.CyberAccessProgram != "", "cyber access program"},
 		{req.RequireGitRepo, "require git repo"},
 		{req.OutputLastMessagePath != "", "output last message path"},
 		{req.DangerouslyBypassHooks, "dangerously bypass hooks"},

@@ -257,6 +257,23 @@ runner.run(req)
 await runner.run(req)
 ```
 
+## Cyber access program
+
+`cyber_access_program` passes `--cyber-access-program` to Codex, on new runs
+and on resume. The programs are `"standard"`, `"daybreak_blue"`, and
+`"daybreak_red"`; any other string raises a typed `invalidRequest` error before
+the process starts. The field is Codex-only: Claude and Grok runners raise
+`invalidRequest` when it is set.
+
+Codex marks the option as experimental and honors it only with the OpenAI
+provider.
+
+```python
+req = Request(prompt="...", cyber_access_program="daybreak_blue")
+runner.run(req)              # sync
+await runner.run(req)        # async
+```
+
 ## Claude Code agent
 
 The runner also wraps Claude Code's non-interactive mode
@@ -363,7 +380,8 @@ The prompt and `stdin` string are buffered into the temporary prompt file
 before launch. Grok's Messages stream reports reasoning text but no separate
 reasoning token count, so `reasoning_output_tokens` is zero. `add_dirs`,
 `images`, `config`, `enable`, `disable`, `strict_config`, `ignore_user_config`,
-`ignore_rules`, `require_git_repo`, `output_last_message_path`,
+`ignore_rules`, `cyber_access_program`, `require_git_repo`,
+`output_last_message_path`,
 `dangerously_bypass_hooks`, and `resume_all` raise a typed `invalidRequest`
 error because Grok has no equivalent option.
 

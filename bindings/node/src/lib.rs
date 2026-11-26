@@ -325,6 +325,7 @@ pub struct JsRequest {
     pub persistent: Option<bool>,
     pub ignore_user_config: Option<bool>,
     pub ignore_rules: Option<bool>,
+    pub cyber_access_program: Option<String>,
     pub require_git_repo: Option<bool>,
     pub output_schema_path: Option<String>,
     pub output_schema: Option<String>,
@@ -372,6 +373,17 @@ fn parse_approval(value: &str) -> Result<ApprovalPolicy, JsError> {
     }
 }
 
+fn parse_cyber_access_program(value: &str) -> Result<codexcw::CyberAccessProgram, JsError> {
+    match value {
+        "standard" => Ok(codexcw::CyberAccessProgram::Standard),
+        "daybreak_blue" => Ok(codexcw::CyberAccessProgram::DaybreakBlue),
+        "daybreak_red" => Ok(codexcw::CyberAccessProgram::DaybreakRed),
+        other => Err(invalid_request(format!(
+            "unknown cyber access program: {other}"
+        ))),
+    }
+}
+
 fn parse_agent(value: &str) -> Result<codexcw::Agent, JsError> {
     match value {
         "codex" => Ok(codexcw::Agent::Codex),
@@ -400,6 +412,10 @@ fn to_core_request(req: JsRequest) -> Result<Request, JsError> {
         Some(value) => Some(parse_approval(value)?),
         None => None,
     };
+    let cyber_access_program = match req.cyber_access_program.as_deref() {
+        Some(value) => Some(parse_cyber_access_program(value)?),
+        None => None,
+    };
     Ok(Request {
         prompt: req.prompt.unwrap_or_default(),
         stdin: req.stdin.map(|s| s.into_bytes()),
@@ -425,6 +441,7 @@ fn to_core_request(req: JsRequest) -> Result<Request, JsError> {
         persistent: req.persistent.unwrap_or(false),
         ignore_user_config: req.ignore_user_config.unwrap_or(false),
         ignore_rules: req.ignore_rules.unwrap_or(false),
+        cyber_access_program,
         require_git_repo: req.require_git_repo.unwrap_or(false),
         output_schema_path: req.output_schema_path,
         output_schema: req.output_schema.map(|s| s.into_bytes()),

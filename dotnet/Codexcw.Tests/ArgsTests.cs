@@ -48,6 +48,7 @@ public sealed class CodexArgsTests
             StrictConfig = true,
             IgnoreUserConfig = true,
             IgnoreRules = true,
+            CyberAccessProgram = CyberAccessProgram.DaybreakBlue,
             OutputSchema = """{"type":"object"}""",
             OutputLastMessagePath = "last.txt",
             DangerouslyBypassHooks = true,
@@ -71,7 +72,8 @@ public sealed class CodexArgsTests
                 "exec", "--json", "--color", "never", "--strict-config", "-m", "gpt-test",
                 "-p", "work", "--enable", "feature-a", "--disable", "feature-b", "-i",
                 "image.png", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config",
-                "--ignore-rules", "--sandbox", "workspace-write", "-c", "approval_policy=\"on-request\"",
+                "--ignore-rules", "--cyber-access-program", "daybreak_blue",
+                "--sandbox", "workspace-write", "-c", "approval_policy=\"on-request\"",
                 "--dangerously-bypass-hook-trust", "-C", "/work", "--add-dir", "/other",
                 "-o", "last.txt", "foo.bar=\"baz\"", "raw=true", "-",
             })
@@ -96,11 +98,15 @@ public sealed class CodexArgsTests
             Persistent = true,
             Sandbox = SandboxMode.DangerFullAccess,
             Approval = ApprovalPolicy.Untrusted,
+            CyberAccessProgram = CyberAccessProgram.Standard,
         });
         var args = prepared.Args;
 
         Assert.Equal("exec", args[0]);
         Assert.Equal("resume", args[1]);
+        var programIndex = args.ToList().IndexOf("--cyber-access-program");
+        Assert.NotEqual(-1, programIndex);
+        Assert.Equal("standard", args[programIndex + 1]);
         Assert.Contains("--all", args);
         Assert.Contains("thread-id", args);
         Assert.Contains("sandbox_mode=\"danger-full-access\"", args);
@@ -241,6 +247,7 @@ public sealed class ClaudeArgsTests
         { "strict config", new Request { Prompt = "x", StrictConfig = true } },
         { "ignore user config", new Request { Prompt = "x", IgnoreUserConfig = true } },
         { "ignore rules", new Request { Prompt = "x", IgnoreRules = true } },
+        { "cyber access program", new Request { Prompt = "x", CyberAccessProgram = CyberAccessProgram.Standard } },
         { "require git repo", new Request { Prompt = "x", RequireGitRepo = true } },
         { "output last message path", new Request { Prompt = "x", OutputLastMessagePath = "o.txt" } },
         { "bypass hooks", new Request { Prompt = "x", DangerouslyBypassHooks = true } },
@@ -262,4 +269,47 @@ public sealed class ClaudeArgsTests
     {
         Assert.Throws<PromptRequiredException>(() => ClaudeArgs.Prepare(new Request()));
     }
+}
+
+/// <summary>Tests that redirect the process temp directory run outside the parallel phase.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class TempPathIsolation
+{
+    public const string Name = "temp path isolation";
+}
+
+[Collection(TempPathIsolation.Name)]
+public sealed class CodexArgsSchemaFileTests
+{
+    [Fact]
+    public void UnknownCyberAccessProgramIsRejectedBeforeWritingSchema()
+    {
+        var variable = OperatingSystem.IsWindows() ? "TMP" : "TMPDIR";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        var dir = Directory.CreateTempSubdirectory("codexcw-test-");
+        Environment.SetEnvironmentVariable(variable, dir.FullName);
+        try
+        {
+            // Control: an accepted request writes its schema file into this directory.
+            var prepared = Prepare(new Request { Prompt = "x", OutputSchema = "{}" });
+            Assert.Single(dir.EnumerateFiles());
+            File.Delete(prepared.SchemaTempPath!);
+
+            Assert.Throws<InvalidRequestException>(() => Prepare(new Request
+            {
+                Prompt = "x",
+                OutputSchema = "{}",
+                CyberAccessProgram = (CyberAccessProgram)99,
+            }));
+            Assert.Empty(dir.EnumerateFiles());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+            dir.Delete(recursive: true);
+        }
+    }
+
+    private static PreparedRun Prepare(Request request) =>
+        CodexArgs.Prepare(request, SandboxMode.ReadOnly, ApprovalPolicy.Never);
 }

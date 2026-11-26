@@ -56,6 +56,34 @@ impl std::fmt::Display for ApprovalPolicy {
     }
 }
 
+/// Cyber access program requested from Codex for a run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CyberAccessProgram {
+    /// The standard Cyber access program.
+    Standard,
+    /// The Daybreak Blue program.
+    DaybreakBlue,
+    /// The Daybreak Red program.
+    DaybreakRed,
+}
+
+impl CyberAccessProgram {
+    /// Returns the wire string for this Cyber access program.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CyberAccessProgram::Standard => "standard",
+            CyberAccessProgram::DaybreakBlue => "daybreak_blue",
+            CyberAccessProgram::DaybreakRed => "daybreak_red",
+        }
+    }
+}
+
+impl std::fmt::Display for CyberAccessProgram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Model aliases accepted by the claude agent's `--model` flag.
 pub mod claude_model {
     /// The latest Claude Haiku model.
@@ -155,6 +183,8 @@ pub struct Request {
     pub ignore_user_config: bool,
     /// Skip user and project execpolicy `.rules` files.
     pub ignore_rules: bool,
+    /// Cyber access program requested from Codex.
+    pub cyber_access_program: Option<CyberAccessProgram>,
     /// Let Codex enforce its Git repository check.
     pub require_git_repo: bool,
     /// Path to a JSON Schema file for the final response.
@@ -213,6 +243,12 @@ impl Request {
     /// Sets the approval policy.
     pub fn approval(mut self, approval: ApprovalPolicy) -> Self {
         self.approval = Some(approval);
+        self
+    }
+
+    /// Sets the Codex Cyber access program.
+    pub fn cyber_access_program(mut self, program: CyberAccessProgram) -> Self {
+        self.cyber_access_program = Some(program);
         self
     }
 

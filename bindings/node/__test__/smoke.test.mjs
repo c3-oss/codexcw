@@ -115,6 +115,50 @@ test('missing prompt surfaces a typed error', async () => {
   })
 })
 
+test('cyberAccessProgram is passed to codex', async () => {
+  const { runner, argsFile } = runnerWithCapture()
+
+  await runner.run({ prompt: 'x', cyberAccessProgram: 'daybreak_blue' })
+
+  const args = readFileSync(argsFile, 'utf8').trim().split('\n')
+  const index = args.indexOf('--cyber-access-program')
+  assert.notEqual(index, -1)
+  assert.equal(args[index + 1], 'daybreak_blue')
+})
+
+test('unknown cyberAccessProgram is rejected before codex starts', async () => {
+  const { runner, argsFile } = runnerWithCapture()
+
+  await assert.rejects(
+    runner.run({ prompt: 'x', cyberAccessProgram: 'daybreak_green' }),
+    (err) => {
+      assert.ok(err instanceof CodexcwError)
+      assert.equal(err.kind, 'invalidRequest')
+      assert.match(err.message, /unknown cyber access program/)
+      return true
+    },
+  )
+  assert.equal(existsSync(argsFile), false)
+})
+
+test('claude and grok agents reject cyberAccessProgram', async () => {
+  for (const [agent, executable] of [
+    ['claude', fakeClaude],
+    ['grok', fakeGrok],
+  ]) {
+    const runner = new Runner({ agent, executable })
+    await assert.rejects(
+      runner.run({ prompt: 'x', cyberAccessProgram: 'standard' }),
+      (err) => {
+        assert.ok(err instanceof CodexcwError)
+        assert.equal(err.kind, 'invalidRequest')
+        assert.match(err.message, /cyber access program is not supported/)
+        return true
+      },
+    )
+  }
+})
+
 test('invalid agent is rejected instead of falling back to codex', () => {
   assert.throws(
     () => new Runner({ agent: 'unknown-agent' }),
