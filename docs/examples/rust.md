@@ -301,6 +301,9 @@ and on resume. The programs are `CyberAccessProgram::Standard`,
 field is Codex-only: Claude and Grok runners return `Error::InvalidRequest`
 when it is set.
 
+Codex marks the option as experimental and honors it only with the OpenAI
+provider.
+
 ```rust
 use codexcw::CyberAccessProgram;
 

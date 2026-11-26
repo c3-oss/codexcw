@@ -265,10 +265,13 @@ and on resume. The programs are `"standard"`, `"daybreak_blue"`, and
 the process starts. The field is Codex-only: Claude and Grok runners raise
 `invalidRequest` when it is set.
 
+Codex marks the option as experimental and honors it only with the OpenAI
+provider.
+
 ```python
 req = Request(prompt="...", cyber_access_program="daybreak_blue")
-runner.run(req)
-await runner.run(req)
+runner.run(req)              # sync
+await runner.run(req)        # async
 ```
 
 ## Claude Code agent

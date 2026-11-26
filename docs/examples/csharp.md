@@ -311,6 +311,9 @@ on resume. The programs are `CyberAccessProgram.Standard`,
 property is Codex-only: Claude and Grok runners throw
 `InvalidRequestException` when it is set.
 
+Codex marks the option as experimental and honors it only with the OpenAI
+provider.
+
 ```csharp
 await runner.RunAsync(new Request
 {

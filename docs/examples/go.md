@@ -292,6 +292,9 @@ and `CyberAccessDaybreakRed`; any other value returns `ErrInvalidRequest`
 before the process starts. The field is Codex-only: Claude and Grok runners
 return `ErrInvalidRequest` when it is set.
 
+Codex marks the option as experimental and honors it only with the OpenAI
+provider.
+
 ```go
 _, _ = runner.Run(ctx, codexcw.Request{
 	Prompt:             "...",

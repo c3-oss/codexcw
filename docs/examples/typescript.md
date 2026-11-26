@@ -211,6 +211,9 @@ on resume. The programs are `'standard'`, `'daybreak_blue'`, and
 before the process starts. The field is Codex-only: Claude and Grok runners
 reject with `invalidRequest` when it is set.
 
+Codex marks the option as experimental and honors it only with the OpenAI
+provider.
+
 ```ts
 await runner.run({ prompt: '...', cyberAccessProgram: 'daybreak_blue' })
 ```
