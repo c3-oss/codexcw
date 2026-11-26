@@ -39,6 +39,19 @@ public enum ApprovalPolicy
     Never,
 }
 
+/// <summary>The Cyber access program Codex requests for a run.</summary>
+public enum CyberAccessProgram
+{
+    /// <summary>Requests the standard Cyber access program.</summary>
+    Standard,
+
+    /// <summary>Requests the Daybreak Blue program.</summary>
+    DaybreakBlue,
+
+    /// <summary>Requests the Daybreak Red program.</summary>
+    DaybreakRed,
+}
+
 /// <summary>The permission behavior of a Claude or Grok run.</summary>
 public enum PermissionMode
 {
@@ -147,6 +160,9 @@ public sealed record Request
     /// <summary>Skips user and project execpolicy .rules files.</summary>
     public bool IgnoreRules { get; init; }
 
+    /// <summary>Requests a Codex Cyber access program.</summary>
+    public CyberAccessProgram? CyberAccessProgram { get; init; }
+
     /// <summary>Lets Codex enforce its Git repository check.</summary>
     public bool RequireGitRepo { get; init; }
 
@@ -202,6 +218,14 @@ internal static class Wire
         ApprovalPolicy.OnRequest => "on-request",
         ApprovalPolicy.Never => "never",
         _ => throw new InvalidRequestException($"unknown approval policy {(int)policy}"),
+    };
+
+    public static string ToWire(this CyberAccessProgram program) => program switch
+    {
+        CyberAccessProgram.Standard => "standard",
+        CyberAccessProgram.DaybreakBlue => "daybreak_blue",
+        CyberAccessProgram.DaybreakRed => "daybreak_red",
+        _ => throw new InvalidRequestException($"unknown cyber access program {(int)program}"),
     };
 
     public static string ToWire(this PermissionMode mode) => mode switch

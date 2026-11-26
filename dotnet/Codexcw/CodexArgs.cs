@@ -157,6 +157,11 @@ internal static class CodexArgs
         {
             args.Add("--ignore-rules");
         }
+        if (request.CyberAccessProgram is { } program)
+        {
+            args.Add("--cyber-access-program");
+            args.Add(program.ToWire());
+        }
         if (request.DangerouslyBypassSandbox)
         {
             args.Add("--dangerously-bypass-approvals-and-sandbox");

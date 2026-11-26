@@ -177,6 +177,11 @@ public sealed class GrokArgsTests
         Assert.Throws<InvalidRequestException>(() => Prepare(new Request
         {
             Prompt = "x",
+            CyberAccessProgram = CyberAccessProgram.Standard,
+        }));
+        Assert.Throws<InvalidRequestException>(() => Prepare(new Request
+        {
+            Prompt = "x",
             Approval = ApprovalPolicy.Never,
             PermissionMode = PermissionMode.DontAsk,
         }));
