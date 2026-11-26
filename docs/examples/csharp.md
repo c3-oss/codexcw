@@ -303,6 +303,22 @@ await runner.RunAsync(new Request
 });
 ```
 
+## Cyber access program
+
+`CyberAccessProgram` passes `--cyber-access-program` to Codex, on new runs and
+on resume. The programs are `CyberAccessProgram.Standard`,
+`CyberAccessProgram.DaybreakBlue`, and `CyberAccessProgram.DaybreakRed`. The
+property is Codex-only: Claude and Grok runners throw
+`InvalidRequestException` when it is set.
+
+```csharp
+await runner.RunAsync(new Request
+{
+    Prompt = "...",
+    CyberAccessProgram = CyberAccessProgram.DaybreakBlue,
+});
+```
+
 ## Claude Code agent
 
 The runner also wraps Claude Code's non-interactive mode
@@ -410,8 +426,8 @@ not change its invocation. Grok does not expose an account-usage helper.
 `Start`, so `Start` can block on a slow input stream. Grok's Messages stream
 reports reasoning text but no separate reasoning token count, so
 `ReasoningOutputTokens` is zero. `AddDirs`, `Images`, `Config`, `Enable`,
-`Disable`, `StrictConfig`, `IgnoreUserConfig`, `IgnoreRules`, `RequireGitRepo`,
-`OutputLastMessagePath`, `DangerouslyBypassHooks`, and `ResumeAll` throw
+`Disable`, `StrictConfig`, `IgnoreUserConfig`, `IgnoreRules`,
+`CyberAccessProgram`, `RequireGitRepo`, `OutputLastMessagePath`, `DangerouslyBypassHooks`, and `ResumeAll` throw
 `InvalidRequestException` because Grok has no equivalent option.
 
 ## Stdin input

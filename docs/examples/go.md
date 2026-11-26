@@ -284,6 +284,24 @@ _, _ = runner.Run(ctx, codexcw.Request{
 })
 ```
 
+## Cyber access program
+
+`CyberAccessProgram` passes `--cyber-access-program` to Codex, on new runs and
+on resume. The programs are `CyberAccessStandard`, `CyberAccessDaybreakBlue`,
+and `CyberAccessDaybreakRed`; any other value returns `ErrInvalidRequest`
+before the process starts. The field is Codex-only: Claude and Grok runners
+return `ErrInvalidRequest` when it is set.
+
+```go
+_, _ = runner.Run(ctx, codexcw.Request{
+	Prompt:             "...",
+	CyberAccessProgram: codexcw.CyberAccessDaybreakBlue,
+})
+```
+
+The example CLI exposes the same option:
+`codexcw run --cyber-access-program daybreak_blue "..."`.
+
 ## Claude Code agent
 
 The runner also wraps Claude Code's non-interactive mode
@@ -401,7 +419,7 @@ reasoning token count, so `ReasoningOutputTokens` is zero.
 Grok supports `Dir`, `Model`, `Profile`, sandbox/approval/permission controls,
 tool filters, output schemas, resume, environment variables, and the full
 bypass flag. `AddDirs`, `Images`, `Config`, `Enable`, `Disable`, `StrictConfig`,
-`IgnoreUserConfig`, `IgnoreRules`, `RequireGitRepo`,
+`IgnoreUserConfig`, `IgnoreRules`, `CyberAccessProgram`, `RequireGitRepo`,
 `OutputLastMessagePath`, `DangerouslyBypassHooks`, and `ResumeAll` return
 `ErrInvalidRequest` because Grok has no equivalent option.
 

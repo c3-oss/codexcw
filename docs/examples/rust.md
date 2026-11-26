@@ -293,6 +293,27 @@ runner.run(Request {
 }).await?;
 ```
 
+## Cyber access program
+
+`cyber_access_program` passes `--cyber-access-program` to Codex, on new runs
+and on resume. The programs are `CyberAccessProgram::Standard`,
+`CyberAccessProgram::DaybreakBlue`, and `CyberAccessProgram::DaybreakRed`. The
+field is Codex-only: Claude and Grok runners return `Error::InvalidRequest`
+when it is set.
+
+```rust
+use codexcw::CyberAccessProgram;
+
+runner.run(Request {
+    prompt: "...".to_string(),
+    cyber_access_program: Some(CyberAccessProgram::DaybreakBlue),
+    ..Default::default()
+}).await?;
+
+// Or with the chaining setter:
+runner.run(Request::new("...").cyber_access_program(CyberAccessProgram::Standard)).await?;
+```
+
 ## Claude Code agent
 
 The runner also wraps Claude Code's non-interactive mode
@@ -412,7 +433,7 @@ The prompt and `stdin` bytes are buffered into the temporary prompt file before
 the process starts. Grok's Messages stream reports reasoning text but no
 separate reasoning token count, so `reasoning_output_tokens` is zero.
 `add_dirs`, `images`, `config`, `enable`, `disable`, `strict_config`,
-`ignore_user_config`, `ignore_rules`, `require_git_repo`,
+`ignore_user_config`, `ignore_rules`, `cyber_access_program`, `require_git_repo`,
 `output_last_message_path`, `dangerously_bypass_hooks`, and `resume_all` return
 `Error::InvalidRequest` because Grok has no equivalent option.
 
